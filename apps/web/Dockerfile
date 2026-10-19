@@ -9,7 +9,7 @@ COPY . .
 RUN npx -y turbo@2 prune @open2talk/web --docker
 
 FROM base AS build
-ARG NEXT_PUBLIC_SITE_URL
+ARG NEXT_PUBLIC_SITE_URL=https://open2talk.cosmerg.com
 ENV NEXT_PUBLIC_SITE_URL=$NEXT_PUBLIC_SITE_URL NEXT_TELEMETRY_DISABLED=1
 COPY --from=prune /repo/out/json/ .
 RUN pnpm install --frozen-lockfile

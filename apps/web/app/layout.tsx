@@ -6,7 +6,7 @@ import "./globals.css";
 const sans = Geist({ subsets: ["latin"], variable: "--font-sans" });
 const mono = Geist_Mono({ subsets: ["latin"], variable: "--font-mono" });
 
-const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? "https://open2talk.cosmerg.com";
+const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || "https://open2talk.cosmerg.com";
 
 export const metadata: Metadata = {
   metadataBase: new URL(siteUrl),
