@@ -1,3 +1,7 @@
+import { SCREEN_QUALITIES, type ScreenQuality } from "@open2talk/core";
+import { useState } from "react";
+import { loadScreenQuality, saveScreenQuality } from "./screenQuality";
+
 export interface ScreenSource {
   id: string;
   name: string;
@@ -17,6 +21,8 @@ export interface ScreenSourcePickerProps {
 export function ScreenSourcePicker({ sources, audioSupported, onPick }: ScreenSourcePickerProps) {
   const screens = sources.filter((s) => s.kind === "screen");
   const windows = sources.filter((s) => s.kind === "window");
+  // Saved right away; the call reads it when the share starts.
+  const [quality, setQuality] = useState<ScreenQuality>(loadScreenQuality);
   return (
     <div className="o2t-modal" role="dialog" aria-modal="true" onClick={() => onPick(null)}>
       <div className="o2t-card o2t-picker" onClick={(e) => e.stopPropagation()}>
@@ -42,9 +48,28 @@ export function ScreenSourcePicker({ sources, audioSupported, onPick }: ScreenSo
             </section>
           ) : null,
         )}
-        <button className="o2t-btn" onClick={() => onPick(null)}>
-          Cancel
-        </button>
+        <div className="o2t-picker-foot">
+          <label className="o2t-muted">
+            Quality{" "}
+            <select
+              value={quality}
+              onChange={(e) => {
+                const q = e.target.value as ScreenQuality;
+                setQuality(q);
+                saveScreenQuality(q);
+              }}
+            >
+              {SCREEN_QUALITIES.map((q) => (
+                <option key={q.id} value={q.id}>
+                  {q.label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <button className="o2t-btn" onClick={() => onPick(null)}>
+            Cancel
+          </button>
+        </div>
       </div>
     </div>
   );

@@ -1,5 +1,5 @@
 import { Emitter } from "./emitter";
-import { PEER_TOKEN_HEADER, type Envelope, type IceConfig, type ServerEvent, type SignalRequest } from "./protocol";
+import { PEER_TOKEN_HEADER, type Envelope, type PeerRole, type IceConfig, type ServerEvent, type SignalRequest } from "./protocol";
 
 /** The subset of `EventSource` we use; satisfied by the browser global and by `react-native-sse`. */
 export interface EventSourceLike {
@@ -24,6 +24,8 @@ export interface SignalingOptions {
   host: string;
   roomId: string;
   peerId: string;
+  /** Screen-share participants are counted against their own room allowance. */
+  role?: PeerRole;
   eventSource?: EventSourceFactory;
   fetch?: typeof fetch;
 }
@@ -99,7 +101,8 @@ export class SignalingClient extends Emitter<SignalingEvents> {
 
   private open(): void {
     this.emit("status", this.retry === 0 ? "connecting" : "reconnecting");
-    const es = this.makeEventSource(`${this.base()}/events?peer=${encodeURIComponent(this.opts.peerId)}`);
+    const role = this.opts.role === "screen" ? "&role=screen" : "";
+    const es = this.makeEventSource(`${this.base()}/events?peer=${encodeURIComponent(this.opts.peerId)}${role}`);
     this.es = es;
     es.addEventListener("message", (ev) => {
       if (!ev.data) return;

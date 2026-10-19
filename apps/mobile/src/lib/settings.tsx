@@ -1,9 +1,10 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import type { RoomSecret } from "@open2talk/core";
+import { DEFAULT_SCREEN_QUALITY, screenQualityPreset, type RoomSecret, type ScreenQuality } from "@open2talk/core";
 import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from "react";
 
 const HOST_KEY = "open2talk:host";
 const NAME_KEY = "open2talk:displayName";
+const SCREEN_QUALITY_KEY = "open2talk:screenQuality";
 
 interface SettingsValue {
   loaded: boolean;
@@ -11,6 +12,8 @@ interface SettingsValue {
   displayName: string;
   setHost: (host: string) => Promise<void>;
   setDisplayName: (name: string) => Promise<void>;
+  screenQuality: ScreenQuality;
+  setScreenQuality: (quality: ScreenQuality) => Promise<void>;
 }
 
 const SettingsContext = createContext<SettingsValue | null>(null);
@@ -19,11 +22,13 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
   const [loaded, setLoaded] = useState(false);
   const [host, setHostState] = useState("");
   const [displayName, setNameState] = useState("");
+  const [screenQuality, setScreenQualityState] = useState<ScreenQuality>(DEFAULT_SCREEN_QUALITY);
 
   useEffect(() => {
-    void AsyncStorage.multiGet([HOST_KEY, NAME_KEY]).then(([[, h], [, n]]) => {
+    void AsyncStorage.multiGet([HOST_KEY, NAME_KEY, SCREEN_QUALITY_KEY]).then(([[, h], [, n], [, q]]) => {
       setHostState(h ?? "");
       setNameState(n ?? "");
+      setScreenQualityState(screenQualityPreset(q).id);
       setLoaded(true);
     });
   }, []);
@@ -38,8 +43,13 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     await AsyncStorage.setItem(NAME_KEY, n);
   }, []);
 
+  const setScreenQuality = useCallback(async (q: ScreenQuality) => {
+    setScreenQualityState(q);
+    await AsyncStorage.setItem(SCREEN_QUALITY_KEY, q);
+  }, []);
+
   return (
-    <SettingsContext.Provider value={{ loaded, host, displayName, setHost, setDisplayName }}>
+    <SettingsContext.Provider value={{ loaded, host, displayName, setHost, setDisplayName, screenQuality, setScreenQuality }}>
       {children}
     </SettingsContext.Provider>
   );

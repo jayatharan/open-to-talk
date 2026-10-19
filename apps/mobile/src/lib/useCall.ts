@@ -1,9 +1,9 @@
-import { fetchIceConfig, MeshCall, type RemotePeer, type RoomSecret, type SignalingStatus } from "@open2talk/core";
+import { fetchIceConfig, MeshCall, type RemotePeer, type RoomSecret, type ScreenQuality, type SignalingStatus } from "@open2talk/core";
 import { activateKeepAwakeAsync, deactivateKeepAwake } from "expo-keep-awake";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { findNodeHandle, NativeModules, Platform } from "react-native";
 import { mediaDevices } from "react-native-webrtc";
-import { addBroadcastStartedListener } from "../../modules/broadcast-status";
+import { addBroadcastFinishedListener, addBroadcastStartedListener } from "../../modules/broadcast-status";
 import { isDeviceAudioAvailable, setDeviceAudioMicMuted, startDeviceAudio, stopDeviceAudio } from "../../modules/screen-audio";
 import { eventSource, rtc } from "./setup";
 
@@ -11,6 +11,10 @@ type Stream = MediaStream;
 
 // How long the iOS system broadcast picker may stay open before the pending screen track is dropped.
 const BROADCAST_START_TIMEOUT_MS = 60_000;
+// How long a re-share waits for the previous broadcast extension to report it finished, and how long
+// it then lets ReplayKit settle before opening the picker again.
+const BROADCAST_FINISH_TIMEOUT_MS = 4_000;
+const BROADCAST_FINISH_SETTLE_MS = 300;
 
 async function getCameraAndMic(facing: "user" | "environment"): Promise<{ stream: Stream | null; warning: string | null }> {
   const video = { facingMode: facing, width: 1280, height: 720, frameRate: 30 };
@@ -25,12 +29,27 @@ async function getCameraAndMic(facing: "user" | "environment"): Promise<{ stream
   }
 }
 
-export function useCall({ host, secret, displayName }: { host: string; secret: RoomSecret; displayName: string }) {
+export function useCall({
+  host,
+  secret,
+  displayName,
+  screenQuality,
+}: {
+  host: string;
+  secret: RoomSecret;
+  displayName: string;
+  /** Applied to the next share, and live to the current one when it changes. */
+  screenQuality: ScreenQuality;
+}) {
   const callRef = useRef<MeshCall | null>(null);
+  const screenQualityRef = useRef(screenQuality);
   const [peers, setPeers] = useState<RemotePeer[]>([]);
   const [status, setStatus] = useState<SignalingStatus>("connecting");
   const [localStream, setLocalStream] = useState<Stream | null>(null);
   const [sharing, setSharing] = useState(false);
+  // iOS: waiting for the previous broadcast to end before the picker can open again.
+  const [finishingShare, setFinishingShare] = useState(false);
+  const finishingShareRef = useRef(false);
   const [micOn, setMicOn] = useState(true);
   const [camOn, setCamOn] = useState(true);
   const [localVersion, setLocalVersion] = useState(0);
@@ -46,6 +65,10 @@ export function useCall({ host, secret, displayName }: { host: string; secret: R
   const deviceAudioRef = useRef(false);
   // iOS: drops the screen capture that is waiting for the broadcast extension to start.
   const cancelBroadcastRef = useRef<(() => void) | null>(null);
+  // iOS: true from the extension's "started" report until its "finished" one. Only ever set when the
+  // broadcast-status module is present, so builds without it never wait.
+  const broadcastRunningRef = useRef(false);
+  const broadcastFinishedWaitersRef = useRef<(() => void)[]>([]);
 
   const endDeviceAudio = useCallback(() => {
     if (!deviceAudioRef.current) return;
@@ -74,6 +97,11 @@ export function useCall({ host, secret, displayName }: { host: string; secret: R
         endDeviceAudio();
         setSharing(false);
       });
+      call.on("screen-error", (e) => {
+        endDeviceAudio();
+        setSharing(false);
+        setWarning(e.code === "screen-limit" ? "Too many screens are already being shared in this call." : e.message);
+      });
       streamRef.current = media.stream;
       micOnRef.current = !!media.stream?.getAudioTracks().length;
       setLocalStream(media.stream);
@@ -91,6 +119,22 @@ export function useCall({ host, secret, displayName }: { host: string; secret: R
       deactivateKeepAwake("call");
     };
   }, [host, secret, displayName, endDeviceAudio]);
+
+  useEffect(() => {
+    if (Platform.OS !== "ios") return;
+    const subscription = addBroadcastFinishedListener(() => {
+      broadcastRunningRef.current = false;
+      const waiters = broadcastFinishedWaitersRef.current;
+      broadcastFinishedWaitersRef.current = [];
+      waiters.forEach((w) => w());
+    });
+    return () => subscription?.remove();
+  }, []);
+
+  useEffect(() => {
+    screenQualityRef.current = screenQuality;
+    callRef.current?.setScreenQuality(screenQuality);
+  }, [screenQuality]);
 
   const toggleMic = useCallback(() => {
     setMicOn((on) => {
@@ -160,6 +204,26 @@ export function useCall({ host, secret, displayName }: { host: string; secret: R
   // iOS: getDisplayMedia() resolves at once with a track the broadcast extension feeds, but the user
   // may dismiss the system picker. Resolve with the stream only once the extension reports it
   // started; on timeout, a second tap or unmount, stop it and resolve with null.
+  // iOS: an in-app stop closes the socket and the extension only ends once it notices. Opening the
+  // picker before then shows the old broadcast still running and no new "started" report comes, so
+  // wait (bounded) for the old one to finish first.
+  const waitForBroadcastFinished = useCallback(async () => {
+    if (!broadcastRunningRef.current) return;
+    await new Promise<void>((resolve) => {
+      const done = () => {
+        clearTimeout(timer);
+        resolve();
+      };
+      const timer = setTimeout(() => {
+        broadcastFinishedWaitersRef.current = broadcastFinishedWaitersRef.current.filter((w) => w !== done);
+        broadcastRunningRef.current = false;
+        resolve();
+      }, BROADCAST_FINISH_TIMEOUT_MS);
+      broadcastFinishedWaitersRef.current.push(done);
+    });
+    await new Promise((resolve) => setTimeout(resolve, BROADCAST_FINISH_SETTLE_MS));
+  }, []);
+
   const startBroadcast = useCallback(async (pickerTag: number): Promise<Stream | null> => {
     cancelBroadcastRef.current?.();
     let cancel = () => {};
@@ -171,7 +235,10 @@ export function useCall({ host, secret, displayName }: { host: string; secret: R
         resolve(ok);
       };
       // Subscribe before the picker opens so a quick tap on "Start Broadcast" isn't missed.
-      const subscription = addBroadcastStartedListener(() => finish(true));
+      const subscription = addBroadcastStartedListener(() => {
+        broadcastRunningRef.current = true;
+        finish(true);
+      });
       const timer = setTimeout(() => finish(false), BROADCAST_START_TIMEOUT_MS);
       cancel = () => finish(false);
       // Builds without the broadcast-status module can't tell; publish right away as before.
@@ -197,7 +264,7 @@ export function useCall({ host, secret, displayName }: { host: string; secret: R
   // system broadcast picker for the open2talk ReplayKit extension.
   const toggleScreen = useCallback(async (picker?: Parameters<typeof findNodeHandle>[0]) => {
     const call = callRef.current;
-    if (!call) return;
+    if (!call || finishingShareRef.current) return;
     if (call.isScreenSharing) {
       endDeviceAudio();
       call.stopScreenShare();
@@ -209,6 +276,17 @@ export function useCall({ host, secret, displayName }: { host: string; secret: R
       if (Platform.OS === "ios") {
         const tag = picker ? findNodeHandle(picker) : null;
         if (tag == null) return;
+        if (broadcastRunningRef.current) {
+          finishingShareRef.current = true;
+          setFinishingShare(true);
+          try {
+            await waitForBroadcastFinished();
+          } finally {
+            finishingShareRef.current = false;
+            setFinishingShare(false);
+          }
+        }
+        if (callRef.current !== call || call.isScreenSharing) return;
         stream = await startBroadcast(tag);
         if (!stream) return;
         if (callRef.current !== call || call.isScreenSharing) {
@@ -218,7 +296,9 @@ export function useCall({ host, secret, displayName }: { host: string; secret: R
       } else {
         stream = (await mediaDevices.getDisplayMedia({})) as unknown as Stream;
       }
-      call.startScreenShare(stream);
+      // The screen is its own participant; Android's device audio still rides on the mic track below,
+      // since react-native-webrtc has a single audio device module to mix it into.
+      call.startScreenShare(stream, { quality: screenQualityRef.current });
       setSharing(true);
       if (Platform.OS === "android") {
         await shareDeviceAudio(stream);
@@ -229,7 +309,7 @@ export function useCall({ host, secret, displayName }: { host: string; secret: R
       const name = e instanceof Error ? e.message : String(e);
       if (!/NotAllowed|AbortError/.test(name)) setWarning(name);
     }
-  }, [endDeviceAudio, shareDeviceAudio, startBroadcast]);
+  }, [endDeviceAudio, shareDeviceAudio, startBroadcast, waitForBroadcastFinished]);
 
   const leave = useCallback(() => callRef.current?.leave(), []);
 
@@ -240,6 +320,7 @@ export function useCall({ host, secret, displayName }: { host: string; secret: R
     localStream,
     localVersion,
     sharing,
+    finishingShare,
     micOn,
     camOn,
     facing,

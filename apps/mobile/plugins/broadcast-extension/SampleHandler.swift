@@ -14,6 +14,8 @@ final class SampleHandler: RPBroadcastSampleHandler {
   private var connection: SocketConnection?
   private var uploader: SampleUploader?
   private var connectTimer: DispatchSourceTimer?
+  private var groupId: String?
+  private var postedFinished = false
 
   override func broadcastStarted(withSetupInfo setupInfo: [String: NSObject]?) {
     guard let groupId = Bundle.main.object(forInfoDictionaryKey: "RTCAppGroupIdentifier") as? String,
@@ -22,6 +24,7 @@ final class SampleHandler: RPBroadcastSampleHandler {
       finish(reason: "open2talk is missing its App Group configuration.")
       return
     }
+    self.groupId = groupId
     let connection = SocketConnection(filePath: container.appendingPathComponent(Self.socketFileName).path)
     connection.didClose = { [weak self] _ in self?.finish(reason: "Screen sharing stopped.") }
     self.connection = connection
@@ -29,9 +32,22 @@ final class SampleHandler: RPBroadcastSampleHandler {
     connect(connection)
     // Tell the app the user started the broadcast (modules/broadcast-status); until then it holds
     // back the screen track getDisplayMedia() returned, since the user may dismiss the picker.
+    post("broadcast.started")
+  }
+
+  private func post(_ event: String) {
+    guard let groupId else { return }
     CFNotificationCenterPostNotification(
       CFNotificationCenterGetDarwinNotifyCenter(),
-      CFNotificationName("\(groupId).broadcast.started" as CFString), nil, nil, true)
+      CFNotificationName("\(groupId).\(event)" as CFString), nil, nil, true)
+  }
+
+  /// Tells the app the extension is ending, so a re-share it starts right after an in-app stop waits
+  /// for this broadcast to go away instead of opening a picker that still shows it running.
+  private func postFinished() {
+    guard !postedFinished else { return }
+    postedFinished = true
+    post("broadcast.finished")
   }
 
   /// The app only starts listening once JS calls getDisplayMedia(), so retry for a while.
@@ -55,6 +71,7 @@ final class SampleHandler: RPBroadcastSampleHandler {
     connectTimer?.cancel()
     connection?.didClose = nil
     connection?.close()
+    postFinished()
     finishBroadcastWithError(
       NSError(domain: RPRecordingErrorDomain, code: 10001, userInfo: [NSLocalizedDescriptionKey: reason]))
   }
@@ -63,6 +80,7 @@ final class SampleHandler: RPBroadcastSampleHandler {
     connectTimer?.cancel()
     connection?.didClose = nil
     connection?.close()
+    postFinished()
   }
 
   override func processSampleBuffer(_ sampleBuffer: CMSampleBuffer, with sampleBufferType: RPSampleBufferType) {

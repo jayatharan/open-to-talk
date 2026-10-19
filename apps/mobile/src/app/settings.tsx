@@ -3,11 +3,12 @@ import { router } from "expo-router";
 import { useEffect, useState } from "react";
 import { KeyboardAvoidingView, Platform, ScrollView, Text } from "react-native";
 import { Button, Card, ErrorText, Field } from "@/components/form";
+import { ScreenQualityPicker } from "@/components/ScreenQualityPicker";
 import { useSettings } from "@/lib/settings";
 import { ui } from "@/lib/theme";
 
 export default function SettingsScreen() {
-  const { host, setHost, loaded } = useSettings();
+  const { host, setHost, loaded, screenQuality, setScreenQuality } = useSettings();
   const [value, setValue] = useState(host);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -50,6 +51,14 @@ export default function SettingsScreen() {
           <ErrorText>{error}</ErrorText>
           <Button title="Save" primary busy={busy} onPress={() => void save()} disabled={!value.trim()} />
         </Card>
+        {host ? (
+          <Card
+            title="Screen sharing"
+            subtitle="Highest resolution sent when you share your screen. Lower uses less data; you can also change it during a call by long-pressing the share button."
+          >
+            <ScreenQualityPicker value={screenQuality} onChange={(q) => void setScreenQuality(q)} />
+          </Card>
+        ) : null}
         <Text style={[ui.muted, { textAlign: "center" }]}>
           Your room names and passwords never leave this device.
         </Text>

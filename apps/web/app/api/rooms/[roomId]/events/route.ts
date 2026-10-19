@@ -15,7 +15,9 @@ export function OPTIONS() {
 /** Server-Sent Events stream: one per participant. Delivers presence and sealed signaling envelopes. */
 export async function GET(req: Request, ctx: { params: Promise<{ roomId: string }> }) {
   const { roomId } = await ctx.params;
-  const peerId = new URL(req.url).searchParams.get("peer") ?? "";
+  const params = new URL(req.url).searchParams;
+  const peerId = params.get("peer") ?? "";
+  const role = params.get("role") === "screen" ? "screen" : "person";
   if (!isRoomId(roomId) || !peerIdSchema.safeParse(peerId).success) {
     return json({ error: "bad-request" }, 400);
   }
@@ -57,9 +59,13 @@ export async function GET(req: Request, ctx: { params: Promise<{ roomId: string 
         return;
       }
 
-      const result = joinRoom(roomId, peerId, sink);
+      const result = joinRoom(roomId, peerId, sink, role);
       if (!result.ok) {
-        sink.send({ type: "error", code: "room-full", message: "This call is full." });
+        sink.send(
+          result.reason === "screen-limit"
+            ? { type: "error", code: "screen-limit", message: "Too many screens are already being shared in this call." }
+            : { type: "error", code: "room-full", message: "This call is full." },
+        );
         sink.close();
         return;
       }
