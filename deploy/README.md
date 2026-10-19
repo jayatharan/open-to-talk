@@ -1,6 +1,6 @@
 # Deploying open2talk.cosmerg.com
 
-`.github/workflows/deploy.yml` builds `apps/web/Dockerfile` on a GitHub runner, pushes it to GitHub Container Registry as `ghcr.io/jayatharan/open2talk-web`, and deploys it over SSH to the cosmerg.com server (the same Contabo VPS and `deploy` user as the Cosmerg site; see `docs/server.md` in the cosmerg repo).
+`.github/workflows/deploy.yml` builds `apps/web/Dockerfile` on a GitHub runner, pushes it to GitHub Container Registry as `ghcr.io/jayatharan/open-to-talk-web`, and deploys it over SSH to the cosmerg.com server (the same Contabo VPS and `deploy` user as the Cosmerg site; see `docs/server.md` in the cosmerg repo).
 
 ```
 Cloudflare (proxied, SSL "Full (strict)")
