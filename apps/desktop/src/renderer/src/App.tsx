@@ -8,6 +8,7 @@ import {
 } from "@open2talk/call-react";
 import { checkHost, extractHost, extractSlug, normalizeHost, roomUrl, type RoomSecret } from "@open2talk/core";
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
+import logo from "./assets/logo.svg";
 
 type Screen =
   | { name: "loading" }
@@ -82,7 +83,10 @@ export function App() {
   return (
     <div className="d-shell">
       <header className="d-top">
-        <span className="d-brand">open2talk</span>
+        <span className="d-brand">
+          <img src={logo} alt="" width={22} height={22} />
+          open2talk
+        </span>
         <div>
           {host && <span className="d-host">{host}</span>}
           {screen.name !== "settings" && (

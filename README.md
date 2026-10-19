@@ -1,3 +1,5 @@
+<p align="center"><img src="brand/logo.svg" width="96" height="96" alt="open2talk logo"></p>
+
 # open2talk
 
 Open-source video calls with screen sharing (including screen audio) for **web, desktop (macOS / Windows / Linux), Android and iOS**.

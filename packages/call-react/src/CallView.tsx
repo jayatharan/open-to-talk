@@ -1,6 +1,6 @@
 import type { RoomSecret } from "@open2talk/core";
 import { useEffect, useRef, useState } from "react";
-import { CamIcon, CamOffIcon, CollapseIcon, ExpandIcon, LeaveIcon, LinkIcon, MicIcon, MicOffIcon, ScreenIcon } from "./icons";
+import { CamIcon, CamOffIcon, CollapseIcon, ExpandIcon, LeaveIcon, LinkIcon, MicIcon, MicOffIcon, ScreenIcon, SwitchCameraIcon } from "./icons";
 import { useMeshCall } from "./useMeshCall";
 
 function VideoTile({
@@ -137,6 +137,20 @@ export function CallView({ host, secret, displayName, shareUrl, onLeave, beforeS
   // Mobile browsers (e.g. iOS Safari) have no getDisplayMedia.
   const screenSupported = canShareScreen && !!navigator.mediaDevices?.getDisplayMedia;
   const [copied, setCopied] = useState(false);
+  const [cameraMenu, setCameraMenu] = useState(false);
+
+  useEffect(() => {
+    if (!cameraMenu) return;
+    const close = (e: Event) => {
+      if (e instanceof KeyboardEvent ? e.key === "Escape" : !(e.target as Element).closest?.(".o2t-menu-anchor")) setCameraMenu(false);
+    };
+    document.addEventListener("pointerdown", close);
+    document.addEventListener("keydown", close);
+    return () => {
+      document.removeEventListener("pointerdown", close);
+      document.removeEventListener("keydown", close);
+    };
+  }, [cameraMenu]);
 
   const remoteScreens = call.peers.filter((p) => p.screen);
   const stage = call.screenStream
@@ -177,6 +191,7 @@ export function CallView({ host, secret, displayName, shareUrl, onLeave, beforeS
   const tiles = (
     <>
       <VideoTile
+        key={`local-${call.localVersion}`}
         stream={call.localStream}
         name={`${displayName} (you)`}
         muted
@@ -242,6 +257,37 @@ export function CallView({ host, secret, displayName, shareUrl, onLeave, beforeS
         <button className="o2t-round" data-off={!call.camOn} onClick={call.toggleCam} title={call.camOn ? "Turn camera off" : "Turn camera on"} disabled={!call.localStream?.getVideoTracks().length}>
           {call.camOn ? <CamIcon /> : <CamOffIcon />}
         </button>
+        {call.cameras.length > 1 && (
+          <div className="o2t-menu-anchor">
+            <button
+              className="o2t-round"
+              onClick={() => (call.cameras.length === 2 ? void call.switchCamera() : setCameraMenu((o) => !o))}
+              title="Switch camera"
+              aria-haspopup={call.cameras.length > 2 ? "menu" : undefined}
+              aria-expanded={call.cameras.length > 2 ? cameraMenu : undefined}
+            >
+              <SwitchCameraIcon />
+            </button>
+            {cameraMenu && (
+              <div className="o2t-menu" role="menu">
+                {call.cameras.map((c, i) => (
+                  <button
+                    key={c.deviceId}
+                    role="menuitemradio"
+                    aria-checked={c.deviceId === call.cameraId}
+                    className="o2t-menu-item"
+                    onClick={() => {
+                      setCameraMenu(false);
+                      void call.switchCamera(c.deviceId);
+                    }}
+                  >
+                    {c.label || `Camera ${i + 1}`}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
         {screenSupported && (
           <button className="o2t-round" data-active={!!call.screenStream} onClick={() => void call.toggleScreen()} title={call.screenStream ? "Stop sharing" : "Share screen"}>
             <ScreenIcon />

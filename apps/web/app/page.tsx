@@ -89,7 +89,8 @@ export default function LandingPage() {
       <header className="lp-header">
         <div className="lp-wrap lp-header-inner">
           <a href="/" className="lp-logo" aria-label="open2talk home">
-            <span className="lp-logo-mark" aria-hidden="true" />
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src="/icon.svg" alt="" width={24} height={24} className="lp-logo-mark" />
             open2talk
           </a>
           <nav className="lp-nav" aria-label="Main">

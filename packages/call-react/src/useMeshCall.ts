@@ -97,6 +97,10 @@ export function useMeshCall({ host, secret, displayName, beforeScreenShare }: Us
   const [mediaPending, setMediaPending] = useState(true);
   const [fatal, setFatal] = useState<string | null>(null);
   const [speaking, setSpeaking] = useState<string[]>([]);
+  const [cameras, setCameras] = useState<MediaDeviceInfo[]>([]);
+  const [cameraId, setCameraId] = useState<string | null>(null);
+  // Bumped when the local camera track is swapped, so the preview re-renders.
+  const [localVersion, setLocalVersion] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
@@ -134,6 +138,46 @@ export function useMeshCall({ host, secret, displayName, beforeScreenShare }: Us
       return !on;
     });
   }, []);
+
+  // Camera list (labels are only available once camera permission is granted).
+  useEffect(() => {
+    const md = navigator.mediaDevices;
+    if (!md?.enumerateDevices || !localStream?.getVideoTracks().length) return;
+    const refresh = () =>
+      void md.enumerateDevices().then((all) => {
+        setCameras(all.filter((d) => d.kind === "videoinput" && d.deviceId));
+        setCameraId(localStream.getVideoTracks()[0]?.getSettings().deviceId ?? null);
+      });
+    refresh();
+    md.addEventListener?.("devicechange", refresh);
+    return () => md.removeEventListener?.("devicechange", refresh);
+  }, [localStream]);
+
+  /** Switch to `deviceId`, or to the next camera when omitted. Peers get the new video without a reconnect. */
+  const switchCamera = useCallback(
+    async (deviceId?: string) => {
+      const call = callRef.current;
+      const old = localStream?.getVideoTracks()[0];
+      if (!call || !old || cameras.length < 2) return;
+      const current = cameras.findIndex((c) => c.deviceId === cameraId);
+      const target = deviceId ?? cameras[(current + 1) % cameras.length]!.deviceId;
+      if (target === cameraId) return;
+      try {
+        const fresh = await navigator.mediaDevices.getUserMedia({
+          video: { deviceId: { exact: target }, width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 30 } },
+        });
+        const track = fresh.getVideoTracks()[0];
+        if (!track) return;
+        await call.replaceCameraTrack(track);
+        old.stop();
+        setCameraId(track.getSettings().deviceId ?? target);
+        setLocalVersion((v) => v + 1);
+      } catch (e) {
+        setWarning(e instanceof Error ? `Couldn't switch camera: ${e.message}` : "Couldn't switch camera");
+      }
+    },
+    [localStream, cameras, cameraId],
+  );
 
   const toggleCam = useCallback(() => {
     setCamOn((on) => {
@@ -175,6 +219,10 @@ export function useMeshCall({ host, secret, displayName, beforeScreenShare }: Us
 
   return {
     peers,
+    cameras,
+    cameraId,
+    localVersion,
+    switchCamera,
     localSpeaking,
     isSpeaking: (peerId: string) => speakingPeers.has(peerId),
     status,

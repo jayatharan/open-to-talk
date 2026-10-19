@@ -74,3 +74,9 @@ export const CollapseIcon = () => (
     <path d="M4 14h6v6M20 10h-6V4M14 10l7-7M3 21l7-7" />
   </Icon>
 );
+export const SwitchCameraIcon = () => (
+  <Icon>
+    <path d="M4 7h3l2-3h6l2 3h3a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V8a1 1 0 0 1 1-1z" />
+    <path d="M9 13a3 3 0 0 1 5.2-2M15 13a3 3 0 0 1-5.2 2M14.5 9v2h-2M9.5 17v-2h2" />
+  </Icon>
+);

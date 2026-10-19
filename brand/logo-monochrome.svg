@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <!-- Android themed (monochrome) icon: single-colour silhouette. -->
+  <g transform="translate(512 512) scale(0.72) translate(-512 -534)">
+    <path fill="#000" fill-rule="evenodd" d="M382 262H642A150 150 0 0 1 792 412V552A150 150 0 0 1 642 702H478L330 806L382 702A150 150 0 0 1 232 552V412A150 150 0 0 1 382 262Z M512 386A62 62 0 0 1 547 499L566 596H458L477 499A62 62 0 0 1 512 386Z"/>
+  </g>
+</svg>
