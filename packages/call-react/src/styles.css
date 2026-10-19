@@ -523,3 +523,27 @@ input {
     transition: none;
   }
 }
+
+/* ------------------------------------------------------------------ speaking indicator */
+
+/* Drawn inside the tile so it never shifts the layout. */
+.o2t-tile::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  box-shadow: inset 0 0 0 3px var(--o2t-speaking, #46a758);
+  opacity: 0;
+  transition: opacity 160ms ease;
+  pointer-events: none;
+}
+
+.o2t-tile-speaking::after {
+  opacity: 1;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .o2t-tile::after {
+    transition: none;
+  }
+}

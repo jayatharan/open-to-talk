@@ -153,6 +153,8 @@ function createWindow(): void {
       contextIsolation: true,
       sandbox: true,
       nodeIntegration: false,
+      // Calls play remote audio and meter the local mic; never wait for a click to start audio.
+      autoplayPolicy: "no-user-gesture-required",
     },
   });
 

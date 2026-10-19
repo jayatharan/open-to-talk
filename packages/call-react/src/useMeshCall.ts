@@ -1,4 +1,4 @@
-import { fetchIceConfig, MeshCall, type RemotePeer, type RoomSecret, type SignalingStatus } from "@open2talk/core";
+import { fetchIceConfig, LOCAL_SPEAKER, MeshCall, type RemotePeer, type RoomSecret, type SignalingStatus } from "@open2talk/core";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 export interface UseMeshCallOptions {
@@ -42,6 +42,49 @@ async function getScreen(): Promise<MediaStream> {
   return stream;
 }
 
+/**
+ * Whether the local mic is picking up speech, measured with Web Audio so it works before anyone
+ * else joins (WebRTC stats only report the local level once a peer is connected).
+ *
+ * The meter keeps reading the mic while muted on purpose: with nothing consuming the track the
+ * browser pauses its audio processing, and auto gain control then takes seconds to recover after
+ * unmuting. It only reports speech while `micOn`.
+ */
+function useLocalSpeaking(stream: MediaStream | null, micOn: boolean): boolean {
+  const [heard, setHeard] = useState(false);
+  useEffect(() => {
+    const track = stream?.getAudioTracks()[0];
+    if (!track || typeof AudioContext === "undefined") {
+      setHeard(false);
+      return;
+    }
+    const ctx = new AudioContext();
+    void ctx.resume().catch(() => undefined);
+    const source = ctx.createMediaStreamSource(new MediaStream([track]));
+    const analyser = ctx.createAnalyser();
+    // ~170 ms per reading, longer than the 100 ms poll, so even short sounds are never missed.
+    analyser.fftSize = 8192;
+    source.connect(analyser);
+    const samples = new Float32Array(analyser.fftSize);
+    let lastHeard = 0;
+    const timer = setInterval(() => {
+      if (ctx.state === "suspended") void ctx.resume().catch(() => undefined);
+      analyser.getFloatTimeDomainData(samples);
+      let sum = 0;
+      for (const v of samples) sum += v * v;
+      const now = Date.now();
+      if (Math.sqrt(sum / samples.length) > 0.02) lastHeard = now;
+      setHeard(now - lastHeard < 700);
+    }, 100);
+    return () => {
+      clearInterval(timer);
+      source.disconnect();
+      void ctx.close().catch(() => undefined);
+    };
+  }, [stream]);
+  return micOn && heard;
+}
+
 export function useMeshCall({ host, secret, displayName, beforeScreenShare }: UseMeshCallOptions) {
   const callRef = useRef<MeshCall | null>(null);
   const [peers, setPeers] = useState<RemotePeer[]>([]);
@@ -53,6 +96,7 @@ export function useMeshCall({ host, secret, displayName, beforeScreenShare }: Us
   const [warning, setWarning] = useState<string | null>(null);
   const [mediaPending, setMediaPending] = useState(true);
   const [fatal, setFatal] = useState<string | null>(null);
+  const [speaking, setSpeaking] = useState<string[]>([]);
 
   useEffect(() => {
     let cancelled = false;
@@ -69,6 +113,7 @@ export function useMeshCall({ host, secret, displayName, beforeScreenShare }: Us
       call.on("status", setStatus);
       call.on("fatal", (f) => setFatal(f.code === "room-full" ? "This call is full." : f.message));
       call.on("screen-ended", () => setScreenStream(null));
+      call.on("speaking", setSpeaking);
       setMediaPending(false);
       setLocalStream(media.stream);
       setWarning(media.warning);
@@ -124,8 +169,14 @@ export function useMeshCall({ host, secret, displayName, beforeScreenShare }: Us
     callRef.current?.leave();
   }, []);
 
+  const localSpeaking = useLocalSpeaking(localStream, micOn);
+  // Peers come from WebRTC stats; this device's own level comes from the Web Audio meter above.
+  const speakingPeers = new Set(speaking.filter((id) => id !== LOCAL_SPEAKER));
+
   return {
     peers,
+    localSpeaking,
+    isSpeaking: (peerId: string) => speakingPeers.has(peerId),
     status,
     localStream,
     screenStream,

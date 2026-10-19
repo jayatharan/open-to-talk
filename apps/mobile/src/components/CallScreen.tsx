@@ -1,4 +1,4 @@
-import { roomUrl, type RemotePeer, type RoomSecret } from "@open2talk/core";
+import { LOCAL_SPEAKER, roomUrl, type RemotePeer, type RoomSecret } from "@open2talk/core";
 import { SymbolView, type SymbolViewProps } from "expo-symbols";
 import { useEffect, useRef, useState } from "react";
 import { BackHandler, Platform, Pressable, Share, StyleSheet, Text, useWindowDimensions, View } from "react-native";
@@ -36,6 +36,7 @@ function Tile({
   zOrder,
   onPress,
   fullscreen,
+  speaking,
 }: {
   stream: MediaStream | null;
   name: string;
@@ -49,6 +50,8 @@ function Tile({
   /** Tapping a tile toggles it full screen. */
   onPress?: () => void;
   fullscreen?: boolean;
+  /** Green border while this person's microphone picks up speech. */
+  speaking?: boolean;
 }) {
   const url = (stream as unknown as { toURL?: () => string } | null)?.toURL?.();
   const hasVideo = showVideo && !!url && !!stream?.getVideoTracks().length;
@@ -68,6 +71,8 @@ function Tile({
           <Text style={styles.avatarText}>{name.slice(0, 1).toUpperCase() || "?"}</Text>
         </View>
       )}
+      {/* Drawn on top as an inset border so the tile's size never changes. */}
+      {speaking && <View style={styles.speaking} pointerEvents="none" />}
       {onPress && (
         <View style={styles.expand} pointerEvents="none">
           <SymbolView name={fullscreen ? icons.collapse : icons.expand} size={14} tintColor="#fff" />
@@ -160,6 +165,7 @@ export function CallScreen({
           mirror={call.facing === "user"}
           style={style}
           zOrder={1}
+          speaking={call.speaking.includes(LOCAL_SPEAKER)}
           onPress={() => toggleFocus({ kind: "camera", id: "me" })}
         />
       ),
@@ -174,6 +180,7 @@ export function CallScreen({
           showVideo={p.state.camOn}
           micOn={p.state.micOn}
           connecting={p.connection !== "connected"}
+          speaking={call.speaking.includes(p.id)}
           style={style}
           onPress={() => toggleFocus({ kind: "camera", id: p.id })}
         />
@@ -293,6 +300,7 @@ const styles = StyleSheet.create({
   picker: { position: "absolute", width: 1, height: 1, opacity: 0 },
   grid: { flex: 1, flexDirection: "row", flexWrap: "wrap", padding: 4 },
   fullscreen: { flex: 1, backgroundColor: "#000" },
+  speaking: { position: "absolute", top: 0, left: 0, right: 0, bottom: 0, borderRadius: 14, borderWidth: 3, borderColor: colors.ok },
   tileFullscreen: { borderRadius: 0, borderWidth: 0, backgroundColor: "#000" },
   expand: {
     position: "absolute",

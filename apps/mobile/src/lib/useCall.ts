@@ -37,10 +37,12 @@ export function useCall({ host, secret, displayName }: { host: string; secret: R
   const [facing, setFacing] = useState<"user" | "environment">("user");
   const [warning, setWarning] = useState<string | null>(null);
   const [fatal, setFatal] = useState<string | null>(null);
+  // Peer ids (and LOCAL_SPEAKER for this phone) whose mic currently picks up speech.
+  const [speaking, setSpeaking] = useState<string[]>([]);
   const streamRef = useRef<Stream | null>(null);
   const micOnRef = useRef(true);
   // Android device audio is mixed into the mic track, so while it runs the mic is muted in the
-  // mixer and the track stays enabled.
+  // mixer and the track keeps sending (MeshCall's keepSending).
   const deviceAudioRef = useRef(false);
   // iOS: drops the screen capture that is waiting for the broadcast extension to start.
   const cancelBroadcastRef = useRef<(() => void) | null>(null);
@@ -66,6 +68,7 @@ export function useCall({ host, secret, displayName }: { host: string; secret: R
       callRef.current = call;
       call.on("peers", setPeers);
       call.on("status", setStatus);
+      call.on("speaking", setSpeaking);
       call.on("fatal", (f) => setFatal(f.code === "room-full" ? "This call is full." : f.message));
       call.on("screen-ended", () => {
         endDeviceAudio();
@@ -91,11 +94,12 @@ export function useCall({ host, secret, displayName }: { host: string; secret: R
 
   const toggleMic = useCallback(() => {
     setMicOn((on) => {
-      callRef.current?.setMicEnabled(!on);
       micOnRef.current = !on;
       if (deviceAudioRef.current) {
+        callRef.current?.setMicEnabled(!on, { keepSending: true });
         setDeviceAudioMicMuted(on);
-        streamRef.current?.getAudioTracks().forEach((t) => (t.enabled = true));
+      } else {
+        callRef.current?.setMicEnabled(!on);
       }
       return !on;
     });
@@ -149,7 +153,8 @@ export function useCall({ host, secret, displayName }: { host: string; secret: R
     }
     deviceAudioRef.current = true;
     setDeviceAudioMicMuted(!micOnRef.current);
-    micTrack.enabled = true;
+    // Keep sending the mic track (now carrying device audio) even if the user is muted.
+    callRef.current?.setMicEnabled(micOnRef.current, { keepSending: true });
   }, []);
 
   // iOS: getDisplayMedia() resolves at once with a track the broadcast extension feeds, but the user
@@ -230,6 +235,7 @@ export function useCall({ host, secret, displayName }: { host: string; secret: R
 
   return {
     peers,
+    speaking,
     status,
     localStream,
     localVersion,

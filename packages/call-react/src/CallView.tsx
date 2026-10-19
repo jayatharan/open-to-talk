@@ -11,6 +11,7 @@ function VideoTile({
   showVideo,
   micOn,
   connecting,
+  speaking,
   kind = "camera",
 }: {
   stream: MediaStream | null;
@@ -20,6 +21,8 @@ function VideoTile({
   showVideo: boolean;
   micOn?: boolean;
   connecting?: boolean;
+  /** Highlights the tile while this person's microphone picks up speech. */
+  speaking?: boolean;
   kind?: "camera" | "screen";
 }) {
   const ref = useRef<HTMLVideoElement>(null);
@@ -79,7 +82,7 @@ function VideoTile({
   return (
     <div
       ref={tileRef}
-      className={`o2t-tile o2t-tile-${kind}${expanded ? " o2t-tile-expanded" : ""}`}
+      className={`o2t-tile o2t-tile-${kind}${expanded ? " o2t-tile-expanded" : ""}${speaking ? " o2t-tile-speaking" : ""}`}
       role="button"
       tabIndex={0}
       aria-label={large ? `Exit full screen: ${name}` : `View ${name} full screen`}
@@ -180,6 +183,7 @@ export function CallView({ host, secret, displayName, shareUrl, onLeave, beforeS
         mirrored
         showVideo={call.camOn}
         micOn={call.micOn}
+        speaking={call.localSpeaking}
       />
       {call.peers.map((p) => (
         <VideoTile
@@ -189,6 +193,7 @@ export function CallView({ host, secret, displayName, shareUrl, onLeave, beforeS
           showVideo={p.state.camOn}
           micOn={p.state.micOn}
           connecting={p.connection !== "connected"}
+          speaking={call.isSpeaking(p.id)}
         />
       ))}
       {/* Extra remote screen shares (beyond the one on stage) still need to be heard. */}

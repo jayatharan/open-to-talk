@@ -27,7 +27,26 @@ export type MeshCallEvents = {
   fatal: { code: string; message: string };
   /** The local screen share ended (e.g. the OS "Stop sharing" button was used). */
   "screen-ended": undefined;
+  /**
+   * Who is talking right now: peer ids, plus `LOCAL_SPEAKER` for this device. Emitted only when
+   * the set changes. Based on WebRTC audio-level stats, so the local level needs a connected peer.
+   */
+  speaking: string[];
 };
+
+/** Id used in the `speaking` event for this device's own microphone. */
+export const LOCAL_SPEAKER = "local";
+
+/**
+ * Speaking needs a WebRTC audio level (0..1) of at least this, and several times the person's own
+ * background noise: some decoders (e.g. Android) report comfort noise of up to ~0.08 for a silent
+ * mic, while speech is typically 0.1–0.5.
+ */
+const MIN_SPEAKING_LEVEL = 0.05;
+const NOISE_MULTIPLIER = 3;
+/** Keep the indicator on briefly after speech stops so it doesn't flicker between words. */
+const SPEAKING_HOLD_MS = 700;
+const LEVEL_POLL_MS = 250;
 
 export interface MeshCallOptions {
   host: string;
@@ -74,6 +93,11 @@ export class MeshCall extends Emitter<MeshCallEvents> {
   private micOn = true;
   private camOn = true;
   private left = false;
+  private levelTimer: ReturnType<typeof setInterval> | null = null;
+  private lastHeard = new Map<string, number>();
+  /** Slow-moving estimate of each speaker's background level (only updated while quiet). */
+  private noiseFloor = new Map<string, number>();
+  private speaking: string[] = [];
 
   constructor(private readonly opts: MeshCallOptions) {
     super();
@@ -112,6 +136,7 @@ export class MeshCall extends Emitter<MeshCallEvents> {
     this.micOn = camera?.getAudioTracks()[0]?.enabled ?? false;
     this.camOn = camera?.getVideoTracks()[0]?.enabled ?? false;
     this.signaling.connect();
+    this.levelTimer = setInterval(() => void this.pollLevels(), LEVEL_POLL_MS);
   }
 
   get peers(): RemotePeer[] {
@@ -122,9 +147,17 @@ export class MeshCall extends Emitter<MeshCallEvents> {
     return this.localScreen !== null;
   }
 
-  setMicEnabled(on: boolean): void {
+  /**
+   * Mute or unmute by disabling the mic track: the connection keeps sending silent packets, so the
+   * receiver's playout stays in sync and audio returns as soon as the mic is unmuted.
+   *
+   * `keepSending` keeps the track enabled while reporting the mic as muted; Android uses it because
+   * shared device audio is mixed into the mic track (and muted in its mixer instead).
+   */
+  setMicEnabled(on: boolean, opts: { keepSending?: boolean } = {}): void {
     this.micOn = on;
-    this.localCamera?.getAudioTracks().forEach((t) => (t.enabled = on));
+    const send = on || !!opts.keepSending;
+    this.localCamera?.getAudioTracks().forEach((t) => (t.enabled = send));
     this.broadcastState();
   }
 
@@ -190,6 +223,8 @@ export class MeshCall extends Emitter<MeshCallEvents> {
   leave(): void {
     if (this.left) return;
     this.left = true;
+    if (this.levelTimer) clearInterval(this.levelTimer);
+    this.levelTimer = null;
     void this.send({ t: "bye", from: this.peerId }).finally(() => this.signaling.close());
     for (const id of [...this.links.keys()]) this.closeLink(id, false);
     this.localScreen?.getTracks().forEach((t) => t.stop());
@@ -393,10 +428,68 @@ export class MeshCall extends Emitter<MeshCallEvents> {
     }
   }
 
+  /** Compare a level with this speaker's adaptive threshold, learning their noise floor while quiet. */
+  private isSpeech(id: string, level: number): boolean {
+    const floor = this.noiseFloor.get(id) ?? 0;
+    const threshold = Math.max(MIN_SPEAKING_LEVEL, floor * NOISE_MULTIPLIER);
+    if (level >= threshold) return true;
+    this.noiseFloor.set(id, floor * 0.9 + level * 0.1);
+    return false;
+  }
+
+  /** Read audio levels from each connection's stats and emit `speaking` when the set changes. */
+  private async pollLevels(): Promise<void> {
+    if (this.left) return;
+    const now = Date.now();
+    let localLevel = 0;
+    for (const link of this.links.values()) {
+      if (link.pc.connectionState === "closed") continue;
+      let report: RTCStatsReport;
+      try {
+        report = await link.pc.getStats();
+      } catch {
+        continue;
+      }
+      // Only the peer's microphone counts, not the audio of a screen they share.
+      const cameraId = Object.entries(link.state.streams).find(([, kind]) => kind === "camera")?.[0];
+      const micTrackIds = new Set(
+        [...link.remoteStreams.values()]
+          .filter((s) => !cameraId || s.id === cameraId)
+          .flatMap((s) => s.getAudioTracks().map((t) => t.id)),
+      );
+      let peerLevel = 0;
+      report.forEach((stat: Record<string, unknown>) => {
+        if (stat.kind !== "audio" || typeof stat.audioLevel !== "number") return;
+        if (stat.type === "inbound-rtp") {
+          const track = stat.trackIdentifier as string | undefined;
+          if (!track || micTrackIds.size === 0 || micTrackIds.has(track)) peerLevel = Math.max(peerLevel, stat.audioLevel);
+        } else if (stat.type === "media-source") {
+          const track = stat.trackIdentifier as string | undefined;
+          const mic = this.localCamera?.getAudioTracks()[0];
+          if (!mic || !track || track === mic.id) localLevel = Math.max(localLevel, stat.audioLevel);
+        }
+      });
+      if (link.state.micOn && this.isSpeech(link.id, peerLevel)) this.lastHeard.set(link.id, now);
+    }
+    if (this.micOn && this.isSpeech(LOCAL_SPEAKER, localLevel)) this.lastHeard.set(LOCAL_SPEAKER, now);
+
+    const next = [...this.lastHeard]
+      .filter(([id, at]) => now - at < SPEAKING_HOLD_MS && (id === LOCAL_SPEAKER ? this.micOn : this.links.get(id)?.state.micOn))
+      .map(([id]) => id)
+      .sort();
+    for (const [id, at] of this.lastHeard) if (now - at >= SPEAKING_HOLD_MS) this.lastHeard.delete(id);
+    if (next.join() !== this.speaking.join()) {
+      this.speaking = next;
+      this.emit("speaking", next);
+    }
+  }
+
   private closeLink(id: string, emit = true): void {
     const link = this.links.get(id);
     if (!link) return;
     this.links.delete(id);
+    this.noiseFloor.delete(id);
+    this.lastHeard.delete(id);
     try {
       link.pc.close();
     } catch {
