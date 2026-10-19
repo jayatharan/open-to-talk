@@ -1,6 +1,6 @@
 import type { RoomSecret } from "@open2talk/core";
 import { useEffect, useRef, useState } from "react";
-import { CamIcon, CamOffIcon, LeaveIcon, LinkIcon, MicIcon, MicOffIcon, ScreenIcon } from "./icons";
+import { CamIcon, CamOffIcon, CollapseIcon, ExpandIcon, LeaveIcon, LinkIcon, MicIcon, MicOffIcon, ScreenIcon } from "./icons";
 import { useMeshCall } from "./useMeshCall";
 
 function VideoTile({
@@ -23,6 +23,13 @@ function VideoTile({
   kind?: "camera" | "screen";
 }) {
   const ref = useRef<HTMLVideoElement>(null);
+  const tileRef = useRef<HTMLDivElement>(null);
+  // Clicking always fills the window ("expanded"); real fullscreen is layered on top when the
+  // browser grants it, so the feature still works where element fullscreen is unavailable
+  // (e.g. iPhone Safari) or a request is never answered.
+  const [expanded, setExpanded] = useState(false);
+  const [isFullscreen, setIsFullscreen] = useState(false);
+
   useEffect(() => {
     const el = ref.current;
     if (!el) return;
@@ -30,9 +37,56 @@ function VideoTile({
     if (stream) el.play().catch(() => undefined);
   }, [stream]);
 
+  useEffect(() => {
+    let wasFullscreen = false;
+    const onChange = () => {
+      const fs = document.fullscreenElement === tileRef.current;
+      // Leaving fullscreen with the browser's own Esc/gesture also collapses the tile.
+      if (wasFullscreen && !fs) setExpanded(false);
+      wasFullscreen = fs;
+      setIsFullscreen(fs);
+    };
+    document.addEventListener("fullscreenchange", onChange);
+    return () => document.removeEventListener("fullscreenchange", onChange);
+  }, []);
+
+  useEffect(() => {
+    if (!expanded) return;
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && setExpanded(false);
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [expanded]);
+
+  function toggleFullscreen() {
+    const tile = tileRef.current;
+    if (!tile) return;
+    if (expanded || isFullscreen) {
+      if (document.fullscreenElement === tile) void document.exitFullscreen().catch(() => undefined);
+      setExpanded(false);
+      return;
+    }
+    setExpanded(true);
+    tile.requestFullscreen?.().catch(() => undefined);
+  }
+
   const hasVideo = showVideo && !!stream?.getVideoTracks().length;
+  const large = isFullscreen || expanded;
   return (
-    <div className={`o2t-tile o2t-tile-${kind}`}>
+    <div
+      ref={tileRef}
+      className={`o2t-tile o2t-tile-${kind}${expanded ? " o2t-tile-expanded" : ""}`}
+      role="button"
+      tabIndex={0}
+      aria-label={large ? `Exit full screen: ${name}` : `View ${name} full screen`}
+      title={large ? "Click or press Esc to exit full screen" : "Click to view full screen"}
+      onClick={toggleFullscreen}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          toggleFullscreen();
+        }
+      }}
+    >
       {/* The <video> stays mounted even when hidden so remote audio keeps playing. */}
       <video
         ref={ref}
@@ -43,6 +97,9 @@ function VideoTile({
         style={{ opacity: hasVideo ? 1 : 0 }}
       />
       {!hasVideo && <div className="o2t-avatar">{name.slice(0, 1).toUpperCase() || "?"}</div>}
+      <span className="o2t-tile-expand" aria-hidden="true">
+        {large ? <CollapseIcon /> : <ExpandIcon />}
+      </span>
       <div className="o2t-tile-label">
         {micOn === false && (
           <span className="o2t-badge" title="Muted">

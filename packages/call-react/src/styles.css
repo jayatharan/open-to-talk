@@ -447,3 +447,79 @@ input {
   overflow: hidden;
   text-overflow: ellipsis;
 }
+
+/* ------------------------------------------------------------------ full screen tiles */
+
+.o2t-tile {
+  cursor: zoom-in;
+}
+
+.o2t-tile:focus-visible {
+  outline: 2px solid var(--o2t-accent);
+  outline-offset: 2px;
+}
+
+.o2t-tile:fullscreen,
+.o2t-tile-expanded {
+  cursor: zoom-out;
+  border: none;
+  border-radius: 0;
+  background: #000;
+}
+
+/* Never crop someone's face or a shared screen when it fills the display. */
+.o2t-tile:fullscreen video,
+.o2t-tile-expanded video {
+  object-fit: contain;
+}
+
+/* Beats the strip/stage sizing rules (aspect-ratio, fixed heights) so any tile fills the window. */
+.o2t-tile.o2t-tile-expanded,
+.o2t-strip .o2t-tile.o2t-tile-expanded {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  width: auto;
+  height: auto;
+  aspect-ratio: auto;
+}
+
+.o2t-tile-expand {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  background: rgb(0 0 0 / 0.55);
+  color: #fff;
+  opacity: 0;
+  transition: opacity 160ms ease;
+  pointer-events: none;
+}
+
+.o2t-tile-expand svg {
+  width: 16px;
+  height: 16px;
+}
+
+.o2t-tile:hover .o2t-tile-expand,
+.o2t-tile:focus-visible .o2t-tile-expand,
+.o2t-tile:fullscreen .o2t-tile-expand,
+.o2t-tile-expanded .o2t-tile-expand {
+  opacity: 1;
+}
+
+@media (hover: none) {
+  .o2t-tile-expand {
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .o2t-tile-expand {
+    transition: none;
+  }
+}
