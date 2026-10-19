@@ -5,7 +5,7 @@
 ```
 Cloudflare (proxied, SSL "Full (strict)")
   → nginx :443 (Cloudflare origin certificate for *.cosmerg.com)
-    → open2talk-web container on 127.0.0.1:3003
+    → open2talk-web container on 127.0.0.1:3010
 ```
 
 The deploy job stays off until the one-time setup below is done.
@@ -35,7 +35,7 @@ Also add a row for open2talk to the cosmerg repo's `docs/server.md`:
 
 | Service | Container | Folder | Host port |
 | --- | --- | --- | --- |
-| open2talk, open2talk.cosmerg.com | `open2talk-web` | `/opt/open2talk` | `127.0.0.1:3003` |
+| open2talk, open2talk.cosmerg.com | `open2talk-web` | `/opt/open2talk` | `127.0.0.1:3010` |
 
 ## 2. GitHub secrets and variables
 
