@@ -51,7 +51,8 @@
         "expo-build-properties",
         {
           "android": {
-            "usesCleartextTraffic": true
+            "usesCleartextTraffic": true,
+            "extraProguardRules": "# react-native-webrtc: its native library looks these classes up by name when it loads\n# (JNI_OnLoad), so R8 must keep them. libwebrtc.jar also ships jni_zero and a generated `J` class.\n-keep class org.webrtc.** { *; }\n-keep class org.jni_zero.** { *; }\n-keep class J.** { *; }\n-keep class com.oney.WebRTCModule.** { *; }\n-dontwarn org.webrtc.**\n-dontwarn org.jni_zero.**\n-dontwarn J.**"
           },
           "ios": {
             "usePrecompiledModules": false
