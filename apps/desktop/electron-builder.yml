@@ -1,5 +1,7 @@
 appId: org.open2talk.desktop
 productName: open2talk
+# The npm name (@open2talk/desktop) is not path-safe for Linux executables.
+executableName: open2talk
 directories:
   output: release
   buildResources: build
@@ -26,6 +28,8 @@ nsis:
   oneClick: false
   allowToChangeInstallationDirectory: true
 linux:
+  executableName: open2talk
+  syncDesktopName: true
   target: [AppImage, deb]
   category: Network
   maintainer: open2talk contributors
