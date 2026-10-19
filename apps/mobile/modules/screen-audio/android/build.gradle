@@ -1,0 +1,22 @@
+plugins {
+  id 'com.android.library'
+  id 'expo-module-gradle-plugin'
+}
+
+group = 'org.open2talk'
+version = '0.1.0'
+
+android {
+  namespace "expo.modules.screenaudio"
+  defaultConfig {
+    versionCode 1
+    versionName "0.1.0"
+  }
+}
+
+dependencies {
+  // WebRTCModuleOptions/WebRTCModule, plus org.webrtc (JavaAudioDeviceModule, ScreenCapturerAndroid)
+  // through react-native-webrtc's `api 'org.jitsi:webrtc'`.
+  implementation project(':react-native-webrtc')
+  implementation 'com.facebook.react:react-android'
+}

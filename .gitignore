@@ -15,6 +15,7 @@ apps/desktop/release/
 apps/mobile/.expo/
 apps/mobile/ios/
 apps/mobile/android/
+apps/mobile/modules/*/android/build/
 *.jks
 *.p8
 *.p12

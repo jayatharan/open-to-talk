@@ -113,7 +113,7 @@ Set the same `TURN_SECRET`, plus `TURN_URLS=turn:<your-host>:3478`, for the web 
 | --- | --- | --- | --- | --- | --- |
 | Video + audio | ✅ | ✅ | ✅ | ✅ | ✅ |
 | Screen share (video) | ✅ | ✅ | ✅ custom picker | ✅ MediaProjection | 🚧 needs broadcast extension |
-| Screen share **audio** | ✅ tab audio; full system audio on Windows | ❌ (browser limitation) | ✅ Windows; macOS 13+ (ScreenCaptureKit loopback, needs the system-audio permission); ❌ Linux | 🚧 planned (AudioPlaybackCapture, Android 10+) | 🚧 planned (ReplayKit app audio) |
+| Screen share **audio** | ✅ tab audio; full system audio on Windows | ❌ (browser limitation) | ✅ Windows; macOS 13+ (ScreenCaptureKit loopback, needs the system-audio permission); ❌ Linux | ✅ Android 10+: other apps' media/game audio (AudioPlaybackCapture), mixed into the mic track; apps can opt out | 🚧 planned (ReplayKit app audio) |
 | Hear others' screen audio | ✅ | ✅ | ✅ | ✅ | ✅ |
 
 Packaging the desktop app:
