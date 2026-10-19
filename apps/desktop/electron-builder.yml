@@ -33,3 +33,5 @@ linux:
   target: [AppImage, deb]
   category: Network
   maintainer: open2talk contributors
+deb:
+  packageName: open2talk

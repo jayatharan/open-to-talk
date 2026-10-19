@@ -32,5 +32,6 @@
     "typescript": "~5.9.3",
     "vite": "^8.3.4"
   },
-  "desktopName": "open2talk.desktop"
+  "desktopName": "open2talk.desktop",
+  "homepage": "https://open2talk.cosmerg.com"
 }

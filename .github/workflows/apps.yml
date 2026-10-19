@@ -21,9 +21,10 @@ on:
       - ".github/workflows/apps.yml"
   workflow_dispatch:
 
+# Queue rather than cancel: the Android build is long, so let a running one finish.
 concurrency:
   group: apps-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 permissions:
   contents: read
@@ -91,7 +92,8 @@ jobs:
         run: npx expo prebuild --platform android --no-install --clean
       - name: Build release APK
         working-directory: apps/mobile/android
-        run: ./gradlew assembleRelease --no-daemon
+        # 32-bit x86 is only used by old emulators; skipping it saves build time.
+        run: ./gradlew assembleRelease --no-daemon -PreactNativeArchitectures=arm64-v8a,armeabi-v7a,x86_64
       - name: Rename APK
         run: mv apps/mobile/android/app/build/outputs/apk/release/app-release.apk open2talk-android.apk
       - uses: actions/upload-artifact@v4
