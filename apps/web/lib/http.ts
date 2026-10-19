@@ -20,6 +20,8 @@ export function json(body: unknown, status = 200, extra: Record<string, string> 
 }
 
 export function clientIp(req: Request): string {
+  const cf = req.headers.get("cf-connecting-ip");
+  if (cf) return cf;
   const fwd = req.headers.get("x-forwarded-for");
   return fwd?.split(",")[0]?.trim() || req.headers.get("x-real-ip") || "unknown";
 }

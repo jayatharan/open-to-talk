@@ -1,0 +1,118 @@
+# Build the desktop installers (macOS, Windows, Linux) and the Android APK.
+# Every run uploads them as workflow artifacts. Pushing a version tag (v1.2.3)
+# also publishes them as a GitHub Release, which the landing page's download
+# links point to (releases/latest).
+#
+# Builds are unsigned: macOS shows an "unidentified developer" prompt
+# (right-click → Open), Windows SmartScreen warns, and the APK is signed with
+# the Android debug key. Add signing secrets before distributing widely.
+
+name: App builds
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+    paths:
+      - "apps/desktop/**"
+      - "apps/mobile/**"
+      - "packages/**"
+      - "pnpm-lock.yaml"
+      - ".github/workflows/apps.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: apps-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  desktop:
+    name: Desktop (${{ matrix.name }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: macOS
+            os: macos-latest
+            target: --mac --arm64 --x64
+          - name: Windows
+            os: windows-latest
+            target: --win --x64
+          - name: Linux
+            os: ubuntu-latest
+            target: --linux --x64
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Build installers
+        working-directory: apps/desktop
+        env:
+          # No signing certificates yet; skip auto-discovery so builds don't fail.
+          CSC_IDENTITY_AUTO_DISCOVERY: "false"
+        run: pnpm exec electron-vite build && pnpm exec electron-builder ${{ matrix.target }} --publish never
+      - uses: actions/upload-artifact@v4
+        with:
+          name: open2talk-desktop-${{ matrix.name }}
+          if-no-files-found: error
+          path: |
+            apps/desktop/release/*.dmg
+            apps/desktop/release/*.zip
+            apps/desktop/release/*.exe
+            apps/desktop/release/*.AppImage
+            apps/desktop/release/*.deb
+
+  android:
+    name: Android APK
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+      - uses: gradle/actions/setup-gradle@v4
+      - run: pnpm install --frozen-lockfile
+      - name: Generate native project
+        working-directory: apps/mobile
+        run: npx expo prebuild --platform android --no-install --clean
+      - name: Build release APK
+        working-directory: apps/mobile/android
+        run: ./gradlew assembleRelease --no-daemon
+      - name: Rename APK
+        run: mv apps/mobile/android/app/build/outputs/apk/release/app-release.apk open2talk-android.apk
+      - uses: actions/upload-artifact@v4
+        with:
+          name: open2talk-android
+          if-no-files-found: error
+          path: open2talk-android.apk
+
+  release:
+    name: Publish release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [desktop, android]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
+          generate_release_notes: true

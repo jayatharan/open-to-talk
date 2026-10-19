@@ -141,7 +141,8 @@ function SettingsForm({
   onSaved: (host: string) => void;
   onCancel?: () => void;
 }) {
-  const [value, setValue] = useState(initial);
+  // Suggest the public instance on first run; any self-hosted server works too.
+  const [value, setValue] = useState(initial || "https://open2talk.cosmerg.com");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
