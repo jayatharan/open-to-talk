@@ -39,7 +39,7 @@ Also add a row for open2talk to the cosmerg repo's `docs/server.md`:
 
 ## 2. GitHub secrets and variables
 
-In **jayatharan/open-to-connect → Settings → Secrets and variables → Actions** (or scoped to the `production` environment), add the same SSH values the cosmerg repo uses:
+In **jayatharan/open-to-talk → Settings → Secrets and variables → Actions** (or scoped to the `production` environment), add the same SSH values the cosmerg repo uses:
 
 | Secret | Value |
 | --- | --- |

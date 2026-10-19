@@ -1,6 +1,6 @@
 import { CreateCall } from "./CreateCall";
 
-const REPO = "https://github.com/jayatharan/open-to-connect";
+const REPO = "https://github.com/jayatharan/open-to-talk";
 const RELEASES = `${REPO}/releases/latest`;
 
 const steps = [
@@ -238,7 +238,7 @@ https://open2talk.cosmerg.com/r/<salt>.<room id>`}
             </div>
             <pre className="lp-code">
 {`git clone ${REPO}.git
-cd open-to-connect
+cd open-to-talk
 docker compose up -d --build
 # → http://localhost:3000`}
             </pre>
