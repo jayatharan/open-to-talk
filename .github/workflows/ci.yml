@@ -5,6 +5,11 @@ on:
     branches: [main]
   pull_request:
 
+# A new push cancels any older run of this workflow on the same branch or PR.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   check:
     runs-on: ubuntu-latest

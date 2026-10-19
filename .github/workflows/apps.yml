@@ -21,10 +21,10 @@ on:
       - ".github/workflows/apps.yml"
   workflow_dispatch:
 
-# Queue rather than cancel: the Android build is long, so let a running one finish.
+# A new push cancels any older run of this workflow on the same branch.
 concurrency:
-  group: apps-${{ github.ref }}
-  cancel-in-progress: false
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: read

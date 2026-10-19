@@ -19,9 +19,10 @@ on:
       - ".github/workflows/deploy.yml"
   workflow_dispatch:
 
+# A new push cancels any older run of this workflow, so only the latest commit deploys.
 concurrency:
-  group: deploy-web-production
-  cancel-in-progress: false
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: read
