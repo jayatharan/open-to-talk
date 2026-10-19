@@ -1,0 +1,23 @@
+{
+  "name": "open2talk",
+  "private": true,
+  "description": "Open-source, account-free, end-to-end gated WebRTC video calls for web, desktop and mobile.",
+  "license": "MIT",
+  "packageManager": "pnpm@10.28.1",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "dev": "turbo run dev",
+    "build": "turbo run build",
+    "test": "turbo run test",
+    "typecheck": "turbo run typecheck",
+    "lint": "turbo run lint",
+    "format": "prettier --write \"**/*.{ts,tsx,js,mjs,json,md,css}\""
+  },
+  "devDependencies": {
+    "prettier": "^3.9.10",
+    "turbo": "^2.11.9",
+    "typescript": "~5.9.3"
+  }
+}

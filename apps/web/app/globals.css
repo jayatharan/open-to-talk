@@ -1,0 +1,36 @@
+.home {
+  min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 28px;
+  padding: 32px 16px;
+}
+
+.brand {
+  text-align: center;
+}
+
+.brand h1 {
+  margin: 0;
+  font-size: 2rem;
+  letter-spacing: -0.02em;
+}
+
+.brand p {
+  margin: 8px 0 0;
+  color: var(--o2t-muted);
+}
+
+.footer {
+  color: var(--o2t-muted);
+  font-size: 0.8rem;
+  text-align: center;
+  max-width: 420px;
+  line-height: 1.5;
+}
+
+.footer a {
+  color: inherit;
+}

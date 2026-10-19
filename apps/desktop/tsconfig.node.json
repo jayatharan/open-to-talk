@@ -1,0 +1,12 @@
+{
+  "extends": "@open2talk/tsconfig/base.json",
+  "compilerOptions": {
+    "composite": true,
+    "types": ["node"],
+    "lib": ["ES2022"],
+    "noEmit": false,
+    "emitDeclarationOnly": true,
+    "outDir": "out/types"
+  },
+  "include": ["electron.vite.config.ts", "src/main/**/*", "src/preload/**/*"]
+}

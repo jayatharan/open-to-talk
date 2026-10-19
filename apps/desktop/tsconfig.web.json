@@ -1,0 +1,11 @@
+{
+  "extends": "@open2talk/tsconfig/react.json",
+  "compilerOptions": {
+    "composite": true,
+    "noEmit": false,
+    "emitDeclarationOnly": true,
+    "outDir": "out/types-web",
+    "types": ["node"]
+  },
+  "include": ["src/renderer/src/**/*", "src/preload/index.ts"]
+}

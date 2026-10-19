@@ -1,0 +1,7 @@
+{
+  "extends": "@open2talk/tsconfig/react.json",
+  "compilerOptions": {
+    "noEmit": true
+  },
+  "include": ["src"]
+}

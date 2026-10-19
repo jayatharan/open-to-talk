@@ -1,0 +1,10 @@
+**/node_modules
+**/.next
+**/dist
+**/out
+**/.turbo
+**/release
+apps/mobile/ios
+apps/mobile/android
+apps/mobile/.expo
+.git

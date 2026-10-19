@@ -1,0 +1,31 @@
+appId: org.open2talk.desktop
+productName: open2talk
+directories:
+  output: release
+  buildResources: build
+files:
+  - out/**
+  - package.json
+protocols:
+  - name: open2talk
+    schemes: [open2talk]
+mac:
+  category: public.app-category.social-networking
+  hardenedRuntime: true
+  entitlements: build/entitlements.mac.plist
+  entitlementsInherit: build/entitlements.mac.plist
+  target: [dmg, zip]
+  extendInfo:
+    NSCameraUsageDescription: open2talk needs your camera for video calls.
+    NSMicrophoneUsageDescription: open2talk needs your microphone for calls.
+    NSScreenCaptureUsageDescription: open2talk needs screen recording permission to share your screen.
+    NSAudioCaptureUsageDescription: open2talk captures system audio when you share your screen.
+win:
+  target: [nsis]
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+linux:
+  target: [AppImage, deb]
+  category: Network
+  maintainer: open2talk contributors

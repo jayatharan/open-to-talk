@@ -1,0 +1,22 @@
+node_modules/
+.turbo/
+dist/
+out/
+.next/
+*.tsbuildinfo
+.env
+.env*.local
+.DS_Store
+
+# Electron
+apps/desktop/release/
+
+# Expo
+apps/mobile/.expo/
+apps/mobile/ios/
+apps/mobile/android/
+*.jks
+*.p8
+*.p12
+*.key
+*.mobileprovision

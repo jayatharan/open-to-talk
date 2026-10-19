@@ -1,0 +1,33 @@
+# One long-running instance is required: rooms live in process memory (no database).
+services:
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+    ports:
+      - "3000:3000"
+    env_file:
+      - path: apps/web/.env
+        required: false
+    restart: unless-stopped
+
+  # Optional TURN relay for users behind strict NATs / corporate firewalls.
+  # Enable with: docker compose --profile turn up
+  # and set TURN_URLS / TURN_SECRET in apps/web/.env (same secret as below).
+  turn:
+    image: coturn/coturn:4.6
+    profiles: ["turn"]
+    network_mode: host
+    command:
+      - -n
+      - --use-auth-secret
+      - --static-auth-secret=${TURN_SECRET:-change-me}
+      - --realm=open2talk
+      - --listening-port=3478
+      - --fingerprint
+      - --no-cli
+      - --no-multicast-peers
+      - --denied-peer-ip=10.0.0.0-10.255.255.255
+      - --denied-peer-ip=172.16.0.0-172.31.255.255
+      - --denied-peer-ip=192.168.0.0-192.168.255.255
+    restart: unless-stopped

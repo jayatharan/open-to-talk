@@ -1,0 +1,7 @@
+{
+  "name": "@open2talk/tsconfig",
+  "version": "0.1.0",
+  "private": true,
+  "license": "MIT",
+  "files": ["*.json"]
+}

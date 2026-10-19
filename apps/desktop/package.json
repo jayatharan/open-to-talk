@@ -1,0 +1,35 @@
+{
+  "name": "@open2talk/desktop",
+  "version": "0.1.0",
+  "private": true,
+  "license": "MIT",
+  "description": "open2talk desktop app",
+  "author": "open2talk contributors",
+  "main": "./out/main/index.js",
+  "scripts": {
+    "dev": "electron-vite dev",
+    "build": "electron-vite build",
+    "preview": "electron-vite preview",
+    "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json",
+    "dist": "electron-vite build && electron-builder",
+    "dist:mac": "electron-vite build && electron-builder --mac",
+    "dist:win": "electron-vite build && electron-builder --win",
+    "dist:linux": "electron-vite build && electron-builder --linux"
+  },
+  "devDependencies": {
+    "@open2talk/call-react": "workspace:*",
+    "@open2talk/core": "workspace:*",
+    "@open2talk/tsconfig": "workspace:*",
+    "@types/node": "^24",
+    "@types/react": "~19.3.0",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^6.1.2",
+    "electron": "^44.9.0",
+    "electron-builder": "^26.15.3",
+    "electron-vite": "^6.0.0",
+    "react": "19.3.0",
+    "react-dom": "19.3.0",
+    "typescript": "~5.9.3",
+    "vite": "^8.3.4"
+  }
+}

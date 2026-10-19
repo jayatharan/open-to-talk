@@ -1,0 +1,56 @@
+.d-shell {
+  min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
+}
+
+.d-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--o2t-border);
+  -webkit-app-region: drag;
+}
+
+.d-top button,
+.d-top a {
+  -webkit-app-region: no-drag;
+}
+
+.d-brand {
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.d-host {
+  color: var(--o2t-muted);
+  font-size: 0.8rem;
+  margin-right: 12px;
+}
+
+.d-main {
+  flex: 1;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: center;
+  align-content: center;
+  gap: 20px;
+  padding: 24px 16px;
+}
+
+.d-link {
+  background: none;
+  border: none;
+  color: var(--o2t-accent);
+  cursor: pointer;
+  padding: 0;
+  font-size: 0.9rem;
+}
+
+.d-ok {
+  color: #46a758;
+  margin: 0;
+  font-size: 0.9rem;
+}
