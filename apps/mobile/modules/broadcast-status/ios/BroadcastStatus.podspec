@@ -1,7 +1,7 @@
 Pod::Spec.new do |s|
   s.name           = 'BroadcastStatus'
   s.version        = '1.0.0'
-  s.summary        = 'Reports when the open2talk ReplayKit broadcast extension starts'
+  s.summary        = 'Reports when the open2talk ReplayKit broadcast extension starts and finishes'
   s.author         = ''
   s.homepage       = 'https://github.com/open2talk/open2talk'
   s.platforms      = { :ios => '16.4' }

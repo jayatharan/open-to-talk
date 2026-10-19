@@ -1,6 +1,7 @@
 import { open, randomId, seal, type RoomSecret } from "./crypto";
 import { Emitter } from "./emitter";
-import type { Envelope, IceCandidate, IceConfig, Payload, PeerState, StreamKind } from "./protocol";
+import type { Envelope, IceCandidate, IceConfig, Payload, PeerRole, PeerState, StreamKind } from "./protocol";
+import { DEFAULT_SCREEN_QUALITY, scaleDownFor, screenQualityPreset, type ScreenQuality } from "./screenQuality";
 import { SignalingClient, type EventSourceFactory, type SignalingStatus } from "./signaling";
 
 /**
@@ -27,6 +28,8 @@ export type MeshCallEvents = {
   fatal: { code: string; message: string };
   /** The local screen share ended (e.g. the OS "Stop sharing" button was used). */
   "screen-ended": undefined;
+  /** The local screen share could not join the room (e.g. too many shares) and was stopped. */
+  "screen-error": { code: string; message: string };
   /**
    * Who is talking right now: peer ids, plus `LOCAL_SPEAKER` for this device. Emitted only when
    * the set changes. Based on WebRTC audio-level stats, so the local level needs a connected peer.
@@ -56,6 +59,30 @@ export interface MeshCallOptions {
   rtc?: RtcImpl;
   eventSource?: EventSourceFactory;
   fetch?: typeof fetch;
+  /**
+   * "screen" runs this call as a screen-share participant for `owner` (internal: created by
+   * `startScreenShare`). It only sends its stream, and only to other people.
+   */
+  role?: PeerRole;
+  owner?: string;
+}
+
+/**
+ * Who connects to whom when `self` hears a hello from `remote`, and who makes the first offer.
+ * People connect to each other (the listener of a broadcast hello offers). A screen-share
+ * participant connects to every person except its owner and always offers, since only it sends.
+ */
+export function linkPlan(
+  self: { id: string; role?: PeerRole; owner?: string },
+  remote: { id: string; state: Pick<PeerState, "role" | "owner"> },
+  reply: boolean,
+): "skip" | "offer" | "answer" {
+  const selfScreen = self.role === "screen";
+  const remoteScreen = remote.state.role === "screen";
+  if (selfScreen && remoteScreen) return "skip";
+  if (selfScreen) return remote.id === self.owner ? "skip" : "offer";
+  if (remoteScreen) return remote.state.owner === self.id ? "skip" : "answer";
+  return reply ? "answer" : "offer";
 }
 
 class PeerLink {
@@ -88,8 +115,11 @@ export class MeshCall extends Emitter<MeshCallEvents> {
   private readonly rtc: RtcImpl;
   private readonly links = new Map<string, PeerLink>();
   private queue: Promise<void> = Promise.resolve();
+  /** Mic/camera for a person; the shared screen for a screen-share participant. */
   private localCamera: MediaStream | null = null;
-  private localScreen: MediaStream | null = null;
+  /** The screen-share participant this person runs while sharing. */
+  private screenCall: MeshCall | null = null;
+  private screenQualityId: ScreenQuality = DEFAULT_SCREEN_QUALITY;
   private micOn = true;
   private camOn = true;
   private left = false;
@@ -109,6 +139,7 @@ export class MeshCall extends Emitter<MeshCallEvents> {
       host: opts.host,
       roomId: opts.secret.roomId,
       peerId: this.peerId,
+      role: opts.role,
       eventSource: opts.eventSource,
       fetch: opts.fetch,
     });
@@ -136,15 +167,20 @@ export class MeshCall extends Emitter<MeshCallEvents> {
     this.micOn = camera?.getAudioTracks()[0]?.enabled ?? false;
     this.camOn = camera?.getVideoTracks()[0]?.enabled ?? false;
     this.signaling.connect();
-    this.levelTimer = setInterval(() => void this.pollLevels(), LEVEL_POLL_MS);
+    if (!this.isScreenRole) this.levelTimer = setInterval(() => void this.pollLevels(), LEVEL_POLL_MS);
   }
 
+  /** The people in the call; each one's screen share (a separate participant) is in `screen`. */
   get peers(): RemotePeer[] {
-    return [...this.links.values()].map((l) => this.snapshot(l));
+    return [...this.links.values()].filter((l) => l.state.role !== "screen").map((l) => this.snapshot(l));
   }
 
   get isScreenSharing(): boolean {
-    return this.localScreen !== null;
+    return this.screenCall !== null;
+  }
+
+  get screenQuality(): ScreenQuality {
+    return this.screenQualityId;
   }
 
   /**
@@ -185,38 +221,46 @@ export class MeshCall extends Emitter<MeshCallEvents> {
     track.enabled = this.camOn;
   }
 
-  /** Share a screen stream. Any audio track on it (tab/system audio) is sent alongside the video. */
-  startScreenShare(stream: MediaStream): void {
-    if (this.localScreen) this.stopScreenShare();
-    this.localScreen = stream;
+  /**
+   * Share a screen stream. It joins the room as its own participant with its own connections, so
+   * starting and stopping never renegotiates the call. Any audio track on it (tab/system audio) is
+   * sent alongside the video.
+   */
+  startScreenShare(stream: MediaStream, opts: { quality?: ScreenQuality } = {}): void {
+    if (this.screenCall) this.stopScreenShare();
+    if (opts.quality) this.screenQualityId = opts.quality;
+    const screen = new MeshCall({ ...this.opts, role: "screen", owner: this.peerId });
+    screen.screenQualityId = this.screenQualityId;
+    this.screenCall = screen;
+    screen.on("fatal", (f) => {
+      if (this.screenCall !== screen) return;
+      this.stopScreenShare();
+      this.emit("screen-error", f);
+    });
     stream.getVideoTracks()[0]?.addEventListener("ended", () => {
-      if (this.localScreen === stream) {
+      if (this.screenCall === screen) {
         this.stopScreenShare();
         this.emit("screen-ended", undefined);
       }
     });
-    for (const link of this.links.values()) if (link.tracksAttached) this.addStream(link, stream);
+    screen.join(stream);
     this.broadcastState();
   }
 
-  stopScreenShare(): void {
-    const stream = this.localScreen;
-    if (!stream) return;
-    this.localScreen = null;
-    for (const link of this.links.values()) {
-      for (const track of stream.getTracks()) {
-        const sender = link.senders.get(track.id);
-        if (sender) {
-          try {
-            link.pc.removeTrack(sender);
-          } catch {
-            // connection already closed
-          }
-          link.senders.delete(track.id);
-        }
-      }
+  /** Change the screen-share resolution cap and bitrate, also while sharing (no renegotiation). */
+  setScreenQuality(quality: ScreenQuality): void {
+    this.screenQualityId = quality;
+    if (this.screenCall) {
+      this.screenCall.screenQualityId = quality;
+      for (const link of this.screenCall.links.values()) void this.screenCall.applyScreenQuality(link);
     }
-    stream.getTracks().forEach((t) => t.stop());
+  }
+
+  stopScreenShare(): void {
+    const screen = this.screenCall;
+    if (!screen) return;
+    this.screenCall = null;
+    screen.leave(); // says bye, disconnects and stops the screen tracks
     this.broadcastState();
   }
 
@@ -227,23 +271,30 @@ export class MeshCall extends Emitter<MeshCallEvents> {
     this.levelTimer = null;
     void this.send({ t: "bye", from: this.peerId }).finally(() => this.signaling.close());
     for (const id of [...this.links.keys()]) this.closeLink(id, false);
-    this.localScreen?.getTracks().forEach((t) => t.stop());
+    this.screenCall?.leave();
+    this.screenCall = null;
     this.localCamera?.getTracks().forEach((t) => t.stop());
-    this.localScreen = null;
     this.emitPeers();
   }
 
   // ---------------------------------------------------------------- internals
 
+  private get isScreenRole(): boolean {
+    return this.opts.role === "screen";
+  }
+
   private localState(): PeerState {
     const streams: Record<string, StreamKind> = {};
+    if (this.isScreenRole) {
+      if (this.localCamera) streams[this.localCamera.id] = "screen";
+      return { name: this.opts.displayName, micOn: false, camOn: false, screenOn: true, streams, role: "screen", owner: this.opts.owner };
+    }
     if (this.localCamera) streams[this.localCamera.id] = "camera";
-    if (this.localScreen) streams[this.localScreen.id] = "screen";
     return {
       name: this.opts.displayName,
       micOn: this.micOn,
       camOn: this.camOn,
-      screenOn: this.localScreen !== null,
+      screenOn: this.screenCall !== null,
       streams,
     };
   }
@@ -275,32 +326,51 @@ export class MeshCall extends Emitter<MeshCallEvents> {
 
     switch (p.t) {
       case "hello": {
+        // A single initial offerer avoids glare on every join (see `linkPlan`).
+        const plan = this.planFor(p.from, p.state, p.reply);
+        if (plan === "skip") break;
         const existing = this.links.get(p.from);
-        // Whoever hears the newcomer's broadcast hello makes the first offer; the newcomer waits.
-        // A single initial offerer avoids glare on every join.
-        const link = this.ensureLink(p.from, !p.reply);
+        const reply = !p.reply || !existing;
+        // A screen share offers right away: get our hello (and so our role) to them before the offer.
+        if (reply && this.isScreenRole) {
+          await this.send({ t: "hello", from: this.peerId, to: p.from, reply: true, state: this.localState() });
+        }
+        const link = this.ensureLink(p.from, plan === "offer");
         link.state = p.state;
-        if (!p.reply || !existing) {
+        if (reply && !this.isScreenRole) {
           await this.send({ t: "hello", from: this.peerId, to: p.from, reply: true, state: this.localState() });
         }
         this.emitPeers();
         break;
       }
       case "state": {
+        if (this.ignoresUnknown(p.from)) break;
+        if (!this.links.has(p.from) && this.planFor(p.from, p.state, true) === "skip") break;
         this.ensureLink(p.from).state = p.state;
         this.emitPeers();
         break;
       }
       case "sdp":
+        if (this.ignoresUnknown(p.from)) break;
         await this.onDescription(this.ensureLink(p.from), p.description);
         break;
       case "ice":
+        if (this.ignoresUnknown(p.from)) break;
         await this.onCandidate(this.ensureLink(p.from), p.candidate);
         break;
       case "bye":
         this.closeLink(p.from);
         break;
     }
+  }
+
+  private planFor(id: string, state: PeerState, reply: boolean): ReturnType<typeof linkPlan> {
+    return linkPlan({ id: this.peerId, role: this.opts.role, owner: this.opts.owner }, { id, state }, reply);
+  }
+
+  /** A screen share only connects after a hello, so it never answers unknown or skipped peers. */
+  private ignoresUnknown(id: string): boolean {
+    return this.isScreenRole && !this.links.has(id);
   }
 
   private ensureLink(id: string, initiator = false): PeerLink {
@@ -354,6 +424,7 @@ export class MeshCall extends Emitter<MeshCallEvents> {
 
     pc.addEventListener("connectionstatechange", () => {
       if (pc.connectionState === "failed") pc.restartIce?.();
+      if (pc.connectionState === "connected" && this.isScreenRole) void this.applyScreenQuality(link);
       this.emitPeers();
     });
 
@@ -368,8 +439,9 @@ export class MeshCall extends Emitter<MeshCallEvents> {
 
   private attachLocal(link: PeerLink): void {
     link.tracksAttached = true;
+    // A screen share only sends, so never send our camera/mic to one.
+    if (link.state.role === "screen") return;
     if (this.localCamera) this.addStream(link, this.localCamera);
-    if (this.localScreen) this.addStream(link, this.localScreen);
   }
 
   /** Prefer the atomic parameterless form; fall back for older WebRTC stacks. */
@@ -387,6 +459,29 @@ export class MeshCall extends Emitter<MeshCallEvents> {
     for (const track of stream.getTracks()) {
       if (link.senders.has(track.id)) continue;
       link.senders.set(track.id, link.pc.addTrack(track, stream));
+    }
+    if (this.isScreenRole) void this.applyScreenQuality(link);
+  }
+
+  /** Cap the screen video sent on this link to the chosen quality (resolution, bitrate, frame rate). */
+  private async applyScreenQuality(link: PeerLink): Promise<void> {
+    const preset = screenQualityPreset(this.screenQualityId);
+    for (const sender of link.senders.values()) {
+      const track = sender.track;
+      if (!track || track.kind !== "video") continue;
+      try {
+        const params = sender.getParameters();
+        if (!params.encodings?.length) continue; // not negotiated yet; retried once connected
+        const height = track.getSettings?.().height;
+        for (const enc of params.encodings) {
+          enc.scaleResolutionDownBy = scaleDownFor(preset, height);
+          enc.maxBitrate = preset.maxBitrate;
+          enc.maxFramerate = preset.maxFramerate;
+        }
+        await sender.setParameters(params);
+      } catch (e) {
+        console.warn("[open2talk] could not set screen quality", e);
+      }
     }
   }
 
@@ -443,7 +538,7 @@ export class MeshCall extends Emitter<MeshCallEvents> {
     const now = Date.now();
     let localLevel = 0;
     for (const link of this.links.values()) {
-      if (link.pc.connectionState === "closed") continue;
+      if (link.pc.connectionState === "closed" || link.state.role === "screen") continue;
       let report: RTCStatsReport;
       try {
         report = await link.pc.getStats();
@@ -499,15 +594,22 @@ export class MeshCall extends Emitter<MeshCallEvents> {
   }
 
   private snapshot(link: PeerLink): RemotePeer {
+    const live = (s: MediaStream) => s.getVideoTracks().some((t) => t.readyState !== "ended");
     let camera: MediaStream | null = null;
     let screen: MediaStream | null = null;
     for (const [streamId, stream] of link.remoteStreams) {
       const kind = link.state.streams[streamId];
       if (kind === "screen") {
-        if (link.state.screenOn && stream.getVideoTracks().some((t) => t.readyState !== "ended")) screen = stream;
+        // Older clients send their screen inside the person's own connection.
+        if (link.state.screenOn && live(stream)) screen = stream;
       } else if (kind === "camera" || !camera) {
         camera = stream;
       }
+    }
+    // Newer clients share their screen as a separate participant owned by this person.
+    for (const other of this.links.values()) {
+      if (other.state.role !== "screen" || other.state.owner !== link.id) continue;
+      for (const stream of other.remoteStreams.values()) if (live(stream)) screen = stream;
     }
     return { id: link.id, state: link.state, connection: link.pc.connectionState, camera, screen };
   }

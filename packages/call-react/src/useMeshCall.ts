@@ -1,5 +1,15 @@
-import { fetchIceConfig, LOCAL_SPEAKER, MeshCall, type RemotePeer, type RoomSecret, type SignalingStatus } from "@open2talk/core";
+import {
+  fetchIceConfig,
+  LOCAL_SPEAKER,
+  MeshCall,
+  screenQualityPreset,
+  type RemotePeer,
+  type RoomSecret,
+  type ScreenQuality,
+  type SignalingStatus,
+} from "@open2talk/core";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { loadScreenQuality, saveScreenQuality } from "./screenQuality";
 
 export interface UseMeshCallOptions {
   host: string;
@@ -25,11 +35,21 @@ async function getCameraAndMic(): Promise<{ stream: MediaStream | null; warning:
   }
 }
 
-async function getScreen(): Promise<MediaStream> {
+async function getScreen(quality: ScreenQuality): Promise<MediaStream> {
+  const { maxHeight } = screenQualityPreset(quality);
   // `systemAudio`/`suppressLocalAudioPlayback` are Chromium hints for capturing tab/system audio.
+  // `restrictOwnAudio` keeps this call's own playback (other people's voices and shared screens)
+  // out of a system-audio capture, so nobody hears their own audio come back.
   const options = {
-    video: { frameRate: { ideal: 30 } },
-    audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false, suppressLocalAudioPlayback: false },
+    // Capturing no larger than we send saves encoder work; MeshCall still caps what is sent.
+    video: { frameRate: { ideal: 30 }, ...(maxHeight ? { height: { max: maxHeight } } : {}) },
+    audio: {
+      echoCancellation: false,
+      noiseSuppression: false,
+      autoGainControl: false,
+      suppressLocalAudioPlayback: false,
+      restrictOwnAudio: true,
+    },
     systemAudio: "include",
     selfBrowserSurface: "exclude",
     surfaceSwitching: "include",
@@ -91,6 +111,7 @@ export function useMeshCall({ host, secret, displayName, beforeScreenShare }: Us
   const [status, setStatus] = useState<SignalingStatus>("connecting");
   const [localStream, setLocalStream] = useState<MediaStream | null>(null);
   const [screenStream, setScreenStream] = useState<MediaStream | null>(null);
+  const [screenQuality, setScreenQualityState] = useState<ScreenQuality>(loadScreenQuality);
   const [micOn, setMicOn] = useState(true);
   const [camOn, setCamOn] = useState(true);
   const [warning, setWarning] = useState<string | null>(null);
@@ -117,6 +138,10 @@ export function useMeshCall({ host, secret, displayName, beforeScreenShare }: Us
       call.on("status", setStatus);
       call.on("fatal", (f) => setFatal(f.code === "room-full" ? "This call is full." : f.message));
       call.on("screen-ended", () => setScreenStream(null));
+      call.on("screen-error", (e) => {
+        setScreenStream(null);
+        setWarning(e.code === "screen-limit" ? "Too many screens are already being shared in this call." : e.message);
+      });
       call.on("speaking", setSpeaking);
       setMediaPending(false);
       setLocalStream(media.stream);
@@ -196,8 +221,15 @@ export function useMeshCall({ host, secret, displayName, beforeScreenShare }: Us
     }
     try {
       if (beforeScreenShare && !(await beforeScreenShare())) return;
-      const stream = await getScreen();
-      call.startScreenShare(stream);
+      // The desktop source picker may have changed the quality.
+      const quality = loadScreenQuality();
+      setScreenQualityState(quality);
+      const stream = await getScreen(quality);
+      if (callRef.current !== call || call.isScreenSharing) {
+        stream.getTracks().forEach((t) => t.stop());
+        return;
+      }
+      call.startScreenShare(stream, { quality });
       setScreenStream(stream);
       if (!stream.getAudioTracks().length) {
         setWarning(
@@ -208,6 +240,13 @@ export function useMeshCall({ host, secret, displayName, beforeScreenShare }: Us
       if (e instanceof Error && e.name !== "NotAllowedError" && e.name !== "AbortError") setWarning(e.message);
     }
   }, [beforeScreenShare]);
+
+  /** Applies to the next share, and to the current one live. */
+  const setScreenQuality = useCallback((quality: ScreenQuality) => {
+    saveScreenQuality(quality);
+    setScreenQualityState(quality);
+    callRef.current?.setScreenQuality(quality);
+  }, []);
 
   const leave = useCallback(() => {
     callRef.current?.leave();
@@ -228,6 +267,8 @@ export function useMeshCall({ host, secret, displayName, beforeScreenShare }: Us
     status,
     localStream,
     screenStream,
+    screenQuality,
+    setScreenQuality,
     micOn,
     camOn,
     warning,

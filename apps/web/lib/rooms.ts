@@ -1,5 +1,5 @@
 import { randomBytes } from "node:crypto";
-import { MAX_PEERS_PER_ROOM, type Envelope, type ServerEvent, type SignalRequest } from "@open2talk/core";
+import { MAX_PEERS_PER_ROOM, MAX_SCREENS_PER_ROOM, type Envelope, type PeerRole, type ServerEvent, type SignalRequest } from "@open2talk/core";
 
 /**
  * In-memory room registry. This is the only server state: who is connected to which room id.
@@ -14,6 +14,8 @@ export interface PeerSink {
 interface Peer {
   id: string;
   token: string;
+  /** Claimed by the client (the server can't read payloads); only used for the room allowances. */
+  role: PeerRole;
   sink: PeerSink;
 }
 
@@ -29,14 +31,20 @@ const g = globalThis as typeof globalThis & { __open2talkRooms?: Registry };
 const registry: Registry = (g.__open2talkRooms ??= { rooms: new Map(), tokens: new Map() });
 
 const maxPeers = Number(process.env.MAX_PEERS_PER_ROOM) || MAX_PEERS_PER_ROOM;
+const maxScreens = Number(process.env.MAX_SCREENS_PER_ROOM) || MAX_SCREENS_PER_ROOM;
 
-export type JoinResult = { ok: true; token: string } | { ok: false; reason: "room-full" };
+export type JoinResult = { ok: true; token: string } | { ok: false; reason: "room-full" | "screen-limit" };
 
-export function joinRoom(roomId: string, peerId: string, sink: PeerSink): JoinResult {
+export function joinRoom(roomId: string, peerId: string, sink: PeerSink, role: PeerRole = "person"): JoinResult {
   let room = registry.rooms.get(roomId);
   const existing = room?.get(peerId);
 
-  if (!existing && room && room.size >= maxPeers) return { ok: false, reason: "room-full" };
+  if (!existing && room) {
+    // People and screen shares have separate allowances, so sharing never keeps someone out.
+    const count = [...room.values()].filter((p) => p.role === role).length;
+    if (role === "screen" && count >= maxScreens) return { ok: false, reason: "screen-limit" };
+    if (role === "person" && count >= maxPeers) return { ok: false, reason: "room-full" };
+  }
   if (!room) {
     room = new Map();
     registry.rooms.set(roomId, room);
@@ -50,7 +58,7 @@ export function joinRoom(roomId: string, peerId: string, sink: PeerSink): JoinRe
 
   const token = randomBytes(24).toString("base64url");
   const peers = [...room.keys()].filter((id) => id !== peerId);
-  room.set(peerId, { id: peerId, token, sink });
+  room.set(peerId, { id: peerId, token, role, sink });
   registry.tokens.set(token, { roomId, peerId });
 
   sink.send({ type: "welcome", token, peers });

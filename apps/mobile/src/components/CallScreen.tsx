@@ -1,11 +1,13 @@
 import { LOCAL_SPEAKER, roomUrl, type RemotePeer, type RoomSecret } from "@open2talk/core";
 import { SymbolView, type SymbolViewProps } from "expo-symbols";
 import { useEffect, useRef, useState } from "react";
-import { BackHandler, Platform, Pressable, Share, StyleSheet, Text, useWindowDimensions, View } from "react-native";
+import { ActivityIndicator, BackHandler, Modal, Platform, Pressable, Share, StyleSheet, Text, useWindowDimensions, View } from "react-native";
 import { StatusBar } from "expo-status-bar";
 import { RTCView, ScreenCapturePickerView } from "react-native-webrtc";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { useSettings } from "@/lib/settings";
 import { useCall } from "@/lib/useCall";
+import { ScreenQualityPicker } from "./ScreenQualityPicker";
 import { colors, ui } from "@/lib/theme";
 import { Button } from "./form";
 
@@ -92,20 +94,48 @@ function Tile({
 /** Which tile is shown full screen: a camera (by peer id, "me" for yourself) or a peer's screen. */
 type Focus = { kind: "camera"; id: string } | { kind: "screen"; id: string } | null;
 
-function Control({ icon, onPress, off, active, danger, label }: { icon: Icon; onPress: () => void; off?: boolean; active?: boolean; danger?: boolean; label: string }) {
+function Control({
+  icon,
+  onPress,
+  onLongPress,
+  hint,
+  disabled,
+  busy,
+  off,
+  active,
+  danger,
+  label,
+}: {
+  icon: Icon;
+  onPress: () => void;
+  onLongPress?: () => void;
+  hint?: string;
+  disabled?: boolean;
+  /** Shows a spinner instead of the icon (implies disabled). */
+  busy?: boolean;
+  off?: boolean;
+  active?: boolean;
+  danger?: boolean;
+  label: string;
+}) {
   return (
     <Pressable
       accessibilityLabel={label}
+      accessibilityHint={hint}
       onPress={onPress}
+      onLongPress={onLongPress}
+      disabled={disabled || busy}
+      accessibilityState={{ disabled: disabled || busy, busy }}
       style={({ pressed }) => [
         styles.control,
         off && { backgroundColor: "#3a1f22" },
         active && { backgroundColor: colors.accent },
         danger && { backgroundColor: colors.danger },
         pressed && { opacity: 0.7 },
+        (disabled || busy) && { opacity: 0.5 },
       ]}
     >
-      <SymbolView name={icon} size={22} tintColor={off ? "#ff8b8f" : colors.text} />
+      {busy ? <ActivityIndicator color={colors.text} /> : <SymbolView name={icon} size={22} tintColor={off ? "#ff8b8f" : colors.text} />}
     </Pressable>
   );
 }
@@ -123,7 +153,9 @@ export function CallScreen({
   displayName: string;
   onLeave: () => void;
 }) {
-  const call = useCall({ host, secret, displayName });
+  const { screenQuality, setScreenQuality } = useSettings();
+  const call = useCall({ host, secret, displayName, screenQuality });
+  const [qualitySheet, setQualitySheet] = useState(false);
   const screenPicker = useRef(null);
   const { width, height } = useWindowDimensions();
   const landscape = width > height;
@@ -228,6 +260,7 @@ export function CallScreen({
       {call.status !== "open" && (
         <Text style={styles.banner}>{call.status === "reconnecting" ? "Reconnecting…" : "Connecting…"}</Text>
       )}
+      {call.finishingShare && <Text style={styles.banner}>Finishing previous share…</Text>}
       {call.warning && (
         <Pressable onPress={call.dismissWarning}>
           <Text style={[styles.banner, { color: colors.warn, borderColor: colors.warn }]}>{call.warning}</Text>
@@ -275,11 +308,35 @@ export function CallScreen({
         </View>
       )}
 
+      <Modal visible={qualitySheet} transparent animationType="fade" onRequestClose={() => setQualitySheet(false)}>
+        <Pressable style={styles.sheetBackdrop} onPress={() => setQualitySheet(false)}>
+          <Pressable style={[ui.card, styles.sheet]} onPress={() => undefined}>
+            <Text style={ui.title}>Screen share quality</Text>
+            <Text style={ui.muted}>{call.sharing ? "Changes your current share right away." : "Used the next time you share."}</Text>
+            <ScreenQualityPicker
+              value={screenQuality}
+              onChange={(q) => {
+                void setScreenQuality(q);
+                setQualitySheet(false);
+              }}
+            />
+          </Pressable>
+        </Pressable>
+      </Modal>
+
       <View style={styles.controls}>
         <Control label={call.micOn ? "Mute" : "Unmute"} icon={call.micOn ? icons.mic : icons.micOff} off={!call.micOn} onPress={call.toggleMic} />
         <Control label={call.camOn ? "Camera off" : "Camera on"} icon={call.camOn ? icons.cam : icons.camOff} off={!call.camOn} onPress={call.toggleCam} />
         <Control label="Switch camera" icon={icons.flip} onPress={() => void call.flipCamera()} />
-        <Control label={call.sharing ? "Stop sharing" : "Share screen"} icon={call.sharing ? icons.screenStop : icons.screen} active={call.sharing} onPress={() => void call.toggleScreen(screenPicker.current)} />
+        <Control
+          label={call.sharing ? "Stop sharing" : "Share screen"}
+          hint="Long-press to choose the screen share quality"
+          icon={call.sharing ? icons.screenStop : icons.screen}
+          active={call.sharing}
+          busy={call.finishingShare}
+          onPress={() => void call.toggleScreen(screenPicker.current)}
+          onLongPress={() => setQualitySheet(true)}
+        />
         <Control label="Share invite link" icon={icons.share} onPress={() => void Share.share({ message: roomUrl(host, slug) })} />
         <Control
           label="Leave call"
@@ -298,6 +355,8 @@ export function CallScreen({
 const styles = StyleSheet.create({
   // Must stay mounted (display: "none" views are never created), just invisible.
   picker: { position: "absolute", width: 1, height: 1, opacity: 0 },
+  sheetBackdrop: { flex: 1, backgroundColor: "rgba(0,0,0,0.5)", justifyContent: "flex-end", padding: 16 },
+  sheet: { gap: 12 },
   grid: { flex: 1, flexDirection: "row", flexWrap: "wrap", padding: 4 },
   fullscreen: { flex: 1, backgroundColor: "#000" },
   speaking: { position: "absolute", top: 0, left: 0, right: 0, bottom: 0, borderRadius: 14, borderWidth: 3, borderColor: colors.ok },

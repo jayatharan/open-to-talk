@@ -45,6 +45,17 @@ describe("room registry", () => {
     expect(joinRoom(r, "peerOverflow1", sink())).toEqual({ ok: false, reason: "room-full" });
   });
 
+  it("gives screen shares their own allowance", () => {
+    const r = roomId();
+    for (let i = 0; i < 8; i++) expect(joinRoom(r, `peer${i}xxxxxxx`, sink()).ok).toBe(true);
+    expect(joinRoom(r, "screenAAAAAAA", sink(), "screen").ok).toBe(true);
+    expect(joinRoom(r, "screenBBBBBBB", sink(), "screen").ok).toBe(true);
+    expect(joinRoom(r, "screenCCCCCCC", sink(), "screen")).toEqual({ ok: false, reason: "screen-limit" });
+    expect(joinRoom(r, "peerOverflow1", sink())).toEqual({ ok: false, reason: "room-full" });
+    // Reconnecting is never refused, even at the limit.
+    expect(joinRoom(r, "screenAAAAAAA", sink(), "screen").ok).toBe(true);
+  });
+
   it("lets a peer reconnect without a stale stream evicting it", () => {
     const r = roomId();
     const watcher = sink();

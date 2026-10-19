@@ -46,6 +46,11 @@ export const ScreenIcon = () => (
     <path d="M8 21h8M12 17v4M9 10l3-3 3 3M12 7v6" />
   </Icon>
 );
+export const ChevronUpIcon = () => (
+  <Icon width="12" height="12" strokeWidth="3">
+    <path d="M6 15l6-6 6 6" />
+  </Icon>
+);
 export const LeaveIcon = () => (
   <Icon>
     <path d="M10.7 13.3a16 16 0 0 0 3.4 2.6l1.3-1.3a2 2 0 0 1 2.1-.5 13 13 0 0 0 2.8.7A2 2 0 0 1 22 16.9v3a2 2 0 0 1-2.2 2A20 20 0 0 1 2 4.2 2 2 0 0 1 4 2h3a2 2 0 0 1 2 1.7c.1.9.4 1.9.7 2.8a2 2 0 0 1-.5 2.1L8 9.9" />

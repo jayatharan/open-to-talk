@@ -28,6 +28,9 @@ internal class PlaybackCapture(
       .addMatchingUsage(AudioAttributes.USAGE_MEDIA)
       .addMatchingUsage(AudioAttributes.USAGE_GAME)
       .addMatchingUsage(AudioAttributes.USAGE_UNKNOWN)
+      // Never capture open2talk's own playback (the call, other people's shared screens): the
+      // sharer's audio would be sent straight back to them.
+      .excludeUid(Process.myUid())
       .build()
     val mask = if (channels == 2) AudioFormat.CHANNEL_IN_STEREO else AudioFormat.CHANNEL_IN_MONO
     val format = AudioFormat.Builder()

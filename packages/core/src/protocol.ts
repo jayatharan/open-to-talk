@@ -1,6 +1,8 @@
 import { z } from "zod";
 
 export const MAX_PEERS_PER_ROOM = 8;
+/** Screen shares join as their own participants and have a separate allowance from people. */
+export const MAX_SCREENS_PER_ROOM = 2;
 export const MAX_ENVELOPE_BYTES = 64 * 1024;
 
 const b64url = z.string().regex(/^[A-Za-z0-9_-]+$/);
@@ -24,6 +26,9 @@ export type SignalRequest = z.infer<typeof signalRequestSchema>;
 
 export type StreamKind = "camera" | "screen";
 
+/** A person, or a screen share that a person runs as its own participant. */
+export type PeerRole = "person" | "screen";
+
 export interface PeerState {
   name: string;
   micOn: boolean;
@@ -31,6 +36,10 @@ export interface PeerState {
   screenOn: boolean;
   /** Maps local MediaStream ids to what they carry so receivers can label tiles. */
   streams: Record<string, StreamKind>;
+  /** Set on a screen-share participant. Absent means a person. */
+  role?: "screen";
+  /** For a screen-share participant: the peer id of the person sharing. */
+  owner?: string;
 }
 
 /** Decrypted payloads. `from`/`to` are repeated inside so a captured ciphertext cannot be replayed by another peer. */
@@ -54,7 +63,7 @@ export type ServerEvent =
   | { type: "peer-joined"; id: string }
   | { type: "peer-left"; id: string }
   | { type: "signal"; envelope: Envelope }
-  | { type: "error"; code: "room-full" | "bad-request" | "rate-limited"; message: string };
+  | { type: "error"; code: "room-full" | "screen-limit" | "bad-request" | "rate-limited"; message: string };
 
 export interface IceConfig {
   iceServers: { urls: string | string[]; username?: string; credential?: string }[];

@@ -1,6 +1,18 @@
-import type { RoomSecret } from "@open2talk/core";
+import { SCREEN_QUALITIES, screenQualityPreset, type RoomSecret } from "@open2talk/core";
 import { useEffect, useRef, useState } from "react";
-import { CamIcon, CamOffIcon, CollapseIcon, ExpandIcon, LeaveIcon, LinkIcon, MicIcon, MicOffIcon, ScreenIcon, SwitchCameraIcon } from "./icons";
+import {
+  CamIcon,
+  CamOffIcon,
+  ChevronUpIcon,
+  CollapseIcon,
+  ExpandIcon,
+  LeaveIcon,
+  LinkIcon,
+  MicIcon,
+  MicOffIcon,
+  ScreenIcon,
+  SwitchCameraIcon,
+} from "./icons";
 import { useMeshCall } from "./useMeshCall";
 
 function VideoTile({
@@ -137,12 +149,14 @@ export function CallView({ host, secret, displayName, shareUrl, onLeave, beforeS
   // Mobile browsers (e.g. iOS Safari) have no getDisplayMedia.
   const screenSupported = canShareScreen && !!navigator.mediaDevices?.getDisplayMedia;
   const [copied, setCopied] = useState(false);
-  const [cameraMenu, setCameraMenu] = useState(false);
+  const [menu, setMenu] = useState<"camera" | "quality" | null>(null);
+  const cameraMenu = menu === "camera";
+  const qualityMenu = menu === "quality";
 
   useEffect(() => {
-    if (!cameraMenu) return;
+    if (!menu) return;
     const close = (e: Event) => {
-      if (e instanceof KeyboardEvent ? e.key === "Escape" : !(e.target as Element).closest?.(".o2t-menu-anchor")) setCameraMenu(false);
+      if (e instanceof KeyboardEvent ? e.key === "Escape" : !(e.target as Element).closest?.(".o2t-menu-anchor")) setMenu(null);
     };
     document.addEventListener("pointerdown", close);
     document.addEventListener("keydown", close);
@@ -150,11 +164,11 @@ export function CallView({ host, secret, displayName, shareUrl, onLeave, beforeS
       document.removeEventListener("pointerdown", close);
       document.removeEventListener("keydown", close);
     };
-  }, [cameraMenu]);
+  }, [menu]);
 
   const remoteScreens = call.peers.filter((p) => p.screen);
   const stage = call.screenStream
-    ? { stream: call.screenStream, name: "Your screen", local: true }
+    ? { stream: call.screenStream, name: `Your screen · ${screenQualityPreset(call.screenQuality).label}`, local: true }
     : remoteScreens[0]
       ? { stream: remoteScreens[0].screen, name: `${remoteScreens[0].state.name}'s screen`, local: false }
       : null;
@@ -261,7 +275,7 @@ export function CallView({ host, secret, displayName, shareUrl, onLeave, beforeS
           <div className="o2t-menu-anchor">
             <button
               className="o2t-round"
-              onClick={() => (call.cameras.length === 2 ? void call.switchCamera() : setCameraMenu((o) => !o))}
+              onClick={() => (call.cameras.length === 2 ? void call.switchCamera() : setMenu((m) => (m === "camera" ? null : "camera")))}
               title="Switch camera"
               aria-haspopup={call.cameras.length > 2 ? "menu" : undefined}
               aria-expanded={call.cameras.length > 2 ? cameraMenu : undefined}
@@ -277,7 +291,7 @@ export function CallView({ host, secret, displayName, shareUrl, onLeave, beforeS
                     aria-checked={c.deviceId === call.cameraId}
                     className="o2t-menu-item"
                     onClick={() => {
-                      setCameraMenu(false);
+                      setMenu(null);
                       void call.switchCamera(c.deviceId);
                     }}
                   >
@@ -289,9 +303,40 @@ export function CallView({ host, secret, displayName, shareUrl, onLeave, beforeS
           </div>
         )}
         {screenSupported && (
-          <button className="o2t-round" data-active={!!call.screenStream} onClick={() => void call.toggleScreen()} title={call.screenStream ? "Stop sharing" : "Share screen"}>
-            <ScreenIcon />
-          </button>
+          <div className="o2t-menu-anchor">
+            <button className="o2t-round" data-active={!!call.screenStream} onClick={() => void call.toggleScreen()} title={call.screenStream ? "Stop sharing" : "Share screen"}>
+              <ScreenIcon />
+            </button>
+            <button
+              className="o2t-round-badge"
+              onClick={() => setMenu((m) => (m === "quality" ? null : "quality"))}
+              title={`Screen share quality: ${screenQualityPreset(call.screenQuality).label}`}
+              aria-label="Screen share quality"
+              aria-haspopup="menu"
+              aria-expanded={qualityMenu}
+            >
+              <ChevronUpIcon />
+            </button>
+            {qualityMenu && (
+              <div className="o2t-menu" role="menu" aria-label="Screen share quality">
+                <div className="o2t-menu-label">{call.screenStream ? "Quality (changes live)" : "Screen share quality"}</div>
+                {SCREEN_QUALITIES.map((q) => (
+                  <button
+                    key={q.id}
+                    role="menuitemradio"
+                    aria-checked={q.id === call.screenQuality}
+                    className="o2t-menu-item"
+                    onClick={() => {
+                      setMenu(null);
+                      call.setScreenQuality(q.id);
+                    }}
+                  >
+                    {q.label}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
         )}
         <button className="o2t-round" onClick={copyLink} title="Copy invite link">
           <LinkIcon />
