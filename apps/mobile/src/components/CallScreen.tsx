@@ -1,6 +1,8 @@
 import { roomUrl, type RemotePeer, type RoomSecret } from "@open2talk/core";
 import { SymbolView, type SymbolViewProps } from "expo-symbols";
-import { Pressable, Share, StyleSheet, Text, useWindowDimensions, View } from "react-native";
+import { useEffect, useState } from "react";
+import { BackHandler, Pressable, Share, StyleSheet, Text, useWindowDimensions, View } from "react-native";
+import { StatusBar } from "expo-status-bar";
 import { RTCView } from "react-native-webrtc";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useCall } from "@/lib/useCall";
@@ -18,6 +20,8 @@ const icons = {
   screenStop: { ios: "rectangle.on.rectangle.slash", android: "stop_screen_share" },
   share: { ios: "square.and.arrow.up", android: "share" },
   leave: { ios: "phone.down.fill", android: "call_end" },
+  expand: { ios: "arrow.up.left.and.arrow.down.right", android: "open_in_full" },
+  collapse: { ios: "arrow.down.right.and.arrow.up.left", android: "close_fullscreen" },
 } satisfies Record<string, Icon>;
 
 function Tile({
@@ -30,6 +34,8 @@ function Tile({
   contain,
   style,
   zOrder,
+  onPress,
+  fullscreen,
 }: {
   stream: MediaStream | null;
   name: string;
@@ -40,17 +46,31 @@ function Tile({
   contain?: boolean;
   style?: object;
   zOrder?: number;
+  /** Tapping a tile toggles it full screen. */
+  onPress?: () => void;
+  fullscreen?: boolean;
 }) {
   const url = (stream as unknown as { toURL?: () => string } | null)?.toURL?.();
   const hasVideo = showVideo && !!url && !!stream?.getVideoTracks().length;
   return (
-    <View style={[styles.tile, style]}>
+    <Pressable
+      style={[styles.tile, fullscreen && styles.tileFullscreen, style]}
+      onPress={onPress}
+      disabled={!onPress}
+      accessibilityRole="button"
+      accessibilityLabel={fullscreen ? `Exit full screen: ${name}` : `View ${name} full screen`}
+    >
       {/* Remote audio plays through the native audio session regardless of RTCView. */}
       {hasVideo ? (
         <RTCView streamURL={url} style={StyleSheet.absoluteFill} objectFit={contain ? "contain" : "cover"} mirror={mirror} zOrder={zOrder} />
       ) : (
         <View style={styles.avatar}>
           <Text style={styles.avatarText}>{name.slice(0, 1).toUpperCase() || "?"}</Text>
+        </View>
+      )}
+      {onPress && (
+        <View style={styles.expand} pointerEvents="none">
+          <SymbolView name={fullscreen ? icons.collapse : icons.expand} size={14} tintColor="#fff" />
         </View>
       )}
       <View style={styles.label}>
@@ -60,9 +80,12 @@ function Tile({
           {connecting ? " · connecting…" : ""}
         </Text>
       </View>
-    </View>
+    </Pressable>
   );
 }
+
+/** Which tile is shown full screen: a camera (by peer id, "me" for yourself) or a peer's screen. */
+type Focus = { kind: "camera"; id: string } | { kind: "screen"; id: string } | null;
 
 function Control({ icon, onPress, off, active, danger, label }: { icon: Icon; onPress: () => void; off?: boolean; active?: boolean; danger?: boolean; label: string }) {
   return (
@@ -98,6 +121,19 @@ export function CallScreen({
   const call = useCall({ host, secret, displayName });
   const { width, height } = useWindowDimensions();
   const landscape = width > height;
+  const [focus, setFocus] = useState<Focus>(null);
+  const toggleFocus = (next: NonNullable<Focus>) =>
+    setFocus((f) => (f && f.kind === next.kind && f.id === next.id ? null : next));
+
+  // Android's back button leaves full screen instead of the call.
+  useEffect(() => {
+    if (!focus) return;
+    const sub = BackHandler.addEventListener("hardwareBackPress", () => {
+      setFocus(null);
+      return true;
+    });
+    return () => sub.remove();
+  }, [focus]);
 
   if (call.fatal) {
     return (
@@ -123,6 +159,7 @@ export function CallScreen({
           mirror={call.facing === "user"}
           style={style}
           zOrder={1}
+          onPress={() => toggleFocus({ kind: "camera", id: "me" })}
         />
       ),
     },
@@ -137,6 +174,7 @@ export function CallScreen({
           micOn={p.state.micOn}
           connecting={p.connection !== "connected"}
           style={style}
+          onPress={() => toggleFocus({ kind: "camera", id: p.id })}
         />
       ),
     })),
@@ -145,6 +183,37 @@ export function CallScreen({
   const cols = tiles.length <= 1 ? 1 : landscape ? Math.min(tiles.length, 3) : tiles.length <= 4 ? (tiles.length === 2 ? 1 : 2) : 2;
   const rows = Math.ceil(tiles.length / cols);
   const gridTile = { width: `${100 / cols}%`, height: `${100 / rows}%`, padding: 4 } as const;
+
+  // Full screen: render only the focused stream (one video surface, no controls). Remote
+  // audio keeps playing because it doesn't depend on any RTCView being mounted.
+  const focusedPeer = focus && focus.id !== "me" ? call.peers.find((p) => p.id === focus.id) : null;
+  const focused =
+    focus?.kind === "camera" && focus.id === "me"
+      ? { stream: call.localStream, name: `${displayName} (you)`, showVideo: call.camOn, micOn: call.micOn, mirror: call.facing === "user" }
+      : focus?.kind === "camera" && focusedPeer
+        ? { stream: focusedPeer.camera, name: focusedPeer.state.name, showVideo: focusedPeer.state.camOn, micOn: focusedPeer.state.micOn, mirror: false }
+        : focus?.kind === "screen" && focusedPeer?.screen
+          ? { stream: focusedPeer.screen, name: `${focusedPeer.state.name}'s screen`, showVideo: true, micOn: undefined, mirror: false }
+          : null;
+
+  if (focused) {
+    return (
+      <View style={styles.fullscreen}>
+        <StatusBar hidden />
+        <Tile
+          key={focus?.id === "me" ? `fs-me-${call.localVersion}` : `fs-${focus?.kind}-${focus?.id}`}
+          stream={focused.stream}
+          name={focused.name}
+          showVideo={focused.showVideo}
+          micOn={focused.micOn}
+          mirror={focused.mirror}
+          contain
+          fullscreen
+          onPress={() => setFocus(null)}
+        />
+      </View>
+    );
+  }
 
   return (
     <SafeAreaView style={ui.screen} edges={["top", "bottom", "left", "right"]}>
@@ -160,7 +229,13 @@ export function CallScreen({
       {screenPeer ? (
         <View style={{ flex: 1, flexDirection: landscape ? "row" : "column" }}>
           <View style={{ flex: 1, padding: 4 }}>
-            <Tile stream={screenPeer.screen} name={`${screenPeer.state.name}'s screen`} showVideo contain />
+            <Tile
+              stream={screenPeer.screen}
+              name={`${screenPeer.state.name}'s screen`}
+              showVideo
+              contain
+              onPress={() => toggleFocus({ kind: "screen", id: screenPeer.id })}
+            />
           </View>
           <View style={landscape ? { width: 200 } : { height: 130, flexDirection: "row" }}>
             {tiles.map((t) => (
@@ -208,6 +283,19 @@ export function CallScreen({
 
 const styles = StyleSheet.create({
   grid: { flex: 1, flexDirection: "row", flexWrap: "wrap", padding: 4 },
+  fullscreen: { flex: 1, backgroundColor: "#000" },
+  tileFullscreen: { borderRadius: 0, borderWidth: 0, backgroundColor: "#000" },
+  expand: {
+    position: "absolute",
+    top: 8,
+    right: 8,
+    width: 28,
+    height: 28,
+    borderRadius: 7,
+    backgroundColor: "rgba(0,0,0,0.55)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
   tile: {
     flex: 1,
     backgroundColor: colors.surface,

@@ -51,11 +51,16 @@ function VideoTile({
   }, []);
 
   useEffect(() => {
-    if (!expanded) return;
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && setExpanded(false);
+    if (!expanded && !isFullscreen) return;
+    // Browsers exit fullscreen on Esc themselves; Electron doesn't, so handle both here.
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      if (document.fullscreenElement === tileRef.current) void document.exitFullscreen().catch(() => undefined);
+      setExpanded(false);
+    };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [expanded]);
+  }, [expanded, isFullscreen]);
 
   function toggleFullscreen() {
     const tile = tileRef.current;
