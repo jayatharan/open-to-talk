@@ -27,6 +27,11 @@ final class SampleHandler: RPBroadcastSampleHandler {
     self.connection = connection
     uploader = SampleUploader(connection: connection)
     connect(connection)
+    // Tell the app the user started the broadcast (modules/broadcast-status); until then it holds
+    // back the screen track getDisplayMedia() returned, since the user may dismiss the picker.
+    CFNotificationCenterPostNotification(
+      CFNotificationCenterGetDarwinNotifyCenter(),
+      CFNotificationName("\(groupId).broadcast.started" as CFString), nil, nil, true)
   }
 
   /// The app only starts listening once JS calls getDisplayMedia(), so retry for a while.

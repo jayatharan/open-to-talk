@@ -1,9 +1,9 @@
 import { roomUrl, type RemotePeer, type RoomSecret } from "@open2talk/core";
 import { SymbolView, type SymbolViewProps } from "expo-symbols";
-import { useEffect, useState } from "react";
-import { BackHandler, Pressable, Share, StyleSheet, Text, useWindowDimensions, View } from "react-native";
+import { useEffect, useRef, useState } from "react";
+import { BackHandler, Platform, Pressable, Share, StyleSheet, Text, useWindowDimensions, View } from "react-native";
 import { StatusBar } from "expo-status-bar";
-import { RTCView } from "react-native-webrtc";
+import { RTCView, ScreenCapturePickerView } from "react-native-webrtc";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useCall } from "@/lib/useCall";
 import { colors, ui } from "@/lib/theme";
@@ -119,6 +119,7 @@ export function CallScreen({
   onLeave: () => void;
 }) {
   const call = useCall({ host, secret, displayName });
+  const screenPicker = useRef(null);
   const { width, height } = useWindowDimensions();
   const landscape = width > height;
   const [focus, setFocus] = useState<Focus>(null);
@@ -261,11 +262,17 @@ export function CallScreen({
         </Text>
       )}
 
+      {Platform.OS === "ios" && (
+        <View style={styles.picker} pointerEvents="none">
+          <ScreenCapturePickerView ref={screenPicker} />
+        </View>
+      )}
+
       <View style={styles.controls}>
         <Control label={call.micOn ? "Mute" : "Unmute"} icon={call.micOn ? icons.mic : icons.micOff} off={!call.micOn} onPress={call.toggleMic} />
         <Control label={call.camOn ? "Camera off" : "Camera on"} icon={call.camOn ? icons.cam : icons.camOff} off={!call.camOn} onPress={call.toggleCam} />
         <Control label="Switch camera" icon={icons.flip} onPress={() => void call.flipCamera()} />
-        <Control label={call.sharing ? "Stop sharing" : "Share screen"} icon={call.sharing ? icons.screenStop : icons.screen} active={call.sharing} onPress={() => void call.toggleScreen()} />
+        <Control label={call.sharing ? "Stop sharing" : "Share screen"} icon={call.sharing ? icons.screenStop : icons.screen} active={call.sharing} onPress={() => void call.toggleScreen(screenPicker.current)} />
         <Control label="Share invite link" icon={icons.share} onPress={() => void Share.share({ message: roomUrl(host, slug) })} />
         <Control
           label="Leave call"
@@ -282,6 +289,8 @@ export function CallScreen({
 }
 
 const styles = StyleSheet.create({
+  // Must stay mounted (display: "none" views are never created), just invisible.
+  picker: { position: "absolute", width: 1, height: 1, opacity: 0 },
   grid: { flex: 1, flexDirection: "row", flexWrap: "wrap", padding: 4 },
   fullscreen: { flex: 1, backgroundColor: "#000" },
   tileFullscreen: { borderRadius: 0, borderWidth: 0, backgroundColor: "#000" },

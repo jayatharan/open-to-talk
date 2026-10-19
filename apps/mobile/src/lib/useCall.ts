@@ -1,12 +1,16 @@
 import { fetchIceConfig, MeshCall, type RemotePeer, type RoomSecret, type SignalingStatus } from "@open2talk/core";
 import { activateKeepAwakeAsync, deactivateKeepAwake } from "expo-keep-awake";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Platform } from "react-native";
+import { findNodeHandle, NativeModules, Platform } from "react-native";
 import { mediaDevices } from "react-native-webrtc";
+import { addBroadcastStartedListener } from "../../modules/broadcast-status";
 import { isDeviceAudioAvailable, setDeviceAudioMicMuted, startDeviceAudio, stopDeviceAudio } from "../../modules/screen-audio";
 import { eventSource, rtc } from "./setup";
 
 type Stream = MediaStream;
+
+// How long the iOS system broadcast picker may stay open before the pending screen track is dropped.
+const BROADCAST_START_TIMEOUT_MS = 60_000;
 
 async function getCameraAndMic(facing: "user" | "environment"): Promise<{ stream: Stream | null; warning: string | null }> {
   const video = { facingMode: facing, width: 1280, height: 720, frameRate: 30 };
@@ -38,6 +42,8 @@ export function useCall({ host, secret, displayName }: { host: string; secret: R
   // Android device audio is mixed into the mic track, so while it runs the mic is muted in the
   // mixer and the track stays enabled.
   const deviceAudioRef = useRef(false);
+  // iOS: drops the screen capture that is waiting for the broadcast extension to start.
+  const cancelBroadcastRef = useRef<(() => void) | null>(null);
 
   const endDeviceAudio = useCallback(() => {
     if (!deviceAudioRef.current) return;
@@ -75,6 +81,7 @@ export function useCall({ host, secret, displayName }: { host: string; secret: R
     })().catch((e) => setFatal(e instanceof Error ? e.message : String(e)));
     return () => {
       cancelled = true;
+      cancelBroadcastRef.current?.();
       endDeviceAudio();
       call?.leave();
       callRef.current = null;
@@ -145,7 +152,45 @@ export function useCall({ host, secret, displayName }: { host: string; secret: R
     micTrack.enabled = true;
   }, []);
 
-  const toggleScreen = useCallback(async () => {
+  // iOS: getDisplayMedia() resolves at once with a track the broadcast extension feeds, but the user
+  // may dismiss the system picker. Resolve with the stream only once the extension reports it
+  // started; on timeout, a second tap or unmount, stop it and resolve with null.
+  const startBroadcast = useCallback(async (pickerTag: number): Promise<Stream | null> => {
+    cancelBroadcastRef.current?.();
+    let cancel = () => {};
+    const started = new Promise<boolean>((resolve) => {
+      const finish = (ok: boolean) => {
+        subscription?.remove();
+        clearTimeout(timer);
+        if (cancelBroadcastRef.current === cancel) cancelBroadcastRef.current = null;
+        resolve(ok);
+      };
+      // Subscribe before the picker opens so a quick tap on "Start Broadcast" isn't missed.
+      const subscription = addBroadcastStartedListener(() => finish(true));
+      const timer = setTimeout(() => finish(false), BROADCAST_START_TIMEOUT_MS);
+      cancel = () => finish(false);
+      // Builds without the broadcast-status module can't tell; publish right away as before.
+      if (!subscription) finish(true);
+    });
+    cancelBroadcastRef.current = cancel;
+    // The picker opens asynchronously; getDisplayMedia() then starts the socket server the
+    // broadcast extension connects to once the user taps "Start Broadcast".
+    NativeModules.ScreenCapturePickerViewManager.show(pickerTag);
+    let stream: Stream;
+    try {
+      stream = (await mediaDevices.getDisplayMedia({})) as unknown as Stream;
+    } catch (e) {
+      cancel();
+      throw e;
+    }
+    if (await started) return stream;
+    stream.getTracks().forEach((t) => t.stop());
+    return null;
+  }, []);
+
+  // On iOS, `picker` is the call screen's hidden <ScreenCapturePickerView>; showing it opens the
+  // system broadcast picker for the open2talk ReplayKit extension.
+  const toggleScreen = useCallback(async (picker?: Parameters<typeof findNodeHandle>[0]) => {
     const call = callRef.current;
     if (!call) return;
     if (call.isScreenSharing) {
@@ -155,19 +200,31 @@ export function useCall({ host, secret, displayName }: { host: string; secret: R
       return;
     }
     try {
-      const stream = (await mediaDevices.getDisplayMedia({})) as unknown as Stream;
+      let stream: Stream | null;
+      if (Platform.OS === "ios") {
+        const tag = picker ? findNodeHandle(picker) : null;
+        if (tag == null) return;
+        stream = await startBroadcast(tag);
+        if (!stream) return;
+        if (callRef.current !== call || call.isScreenSharing) {
+          stream.getTracks().forEach((t) => t.stop());
+          return;
+        }
+      } else {
+        stream = (await mediaDevices.getDisplayMedia({})) as unknown as Stream;
+      }
       call.startScreenShare(stream);
       setSharing(true);
       if (Platform.OS === "android") {
         await shareDeviceAudio(stream);
       } else if (!stream.getAudioTracks().length) {
-        setWarning("Screen sharing on iOS needs the open2talk broadcast extension (see README).");
+        setWarning("Sharing your screen without device audio.");
       }
     } catch (e) {
       const name = e instanceof Error ? e.message : String(e);
       if (!/NotAllowed|AbortError/.test(name)) setWarning(name);
     }
-  }, [endDeviceAudio, shareDeviceAudio]);
+  }, [endDeviceAudio, shareDeviceAudio, startBroadcast]);
 
   const leave = useCallback(() => callRef.current?.leave(), []);
 

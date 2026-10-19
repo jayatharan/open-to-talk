@@ -21,26 +21,26 @@ final class SocketConnection: NSObject {
   /// when JS calls getDisplayMedia), so the caller retries.
   func open() -> Bool {
     guard FileManager.default.fileExists(atPath: filePath) else { return false }
-    let handle = socket(AF_UNIX, SOCK_STREAM, 0)
+    let handle = Darwin.socket(AF_UNIX, SOCK_STREAM, 0)
     guard handle >= 0 else { return false }
 
     var addr = sockaddr_un()
     addr.sun_family = sa_family_t(AF_UNIX)
     let maxLength = MemoryLayout.size(ofValue: addr.sun_path)
     guard filePath.utf8.count < maxLength else {
-      close(handle)
+      Darwin.close(handle)
       return false
     }
-    withUnsafeMutablePointer(to: &addr.sun_path) { ptr in
+    _ = withUnsafeMutablePointer(to: &addr.sun_path) { ptr in
       ptr.withMemoryRebound(to: CChar.self, capacity: maxLength) { strncpy($0, filePath, maxLength - 1) }
     }
     let status = withUnsafePointer(to: &addr) { ptr in
       ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) {
-        connect(handle, $0, socklen_t(MemoryLayout<sockaddr_un>.size))
+        Darwin.connect(handle, $0, socklen_t(MemoryLayout<sockaddr_un>.size))
       }
     }
     guard status == 0 else {
-      close(handle)
+      Darwin.close(handle)
       return false
     }
 
@@ -50,7 +50,7 @@ final class SocketConnection: NSObject {
     guard let input = readStream?.takeRetainedValue() as InputStream?,
       let output = writeStream?.takeRetainedValue() as OutputStream?
     else {
-      close(handle)
+      Darwin.close(handle)
       return false
     }
     input.setProperty(kCFBooleanTrue, forKey: Stream.PropertyKey(kCFStreamPropertyShouldCloseNativeSocket as String))

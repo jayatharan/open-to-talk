@@ -60,8 +60,9 @@ function withExtensionFiles(config) {
           CFBundleInfoDictionaryVersion: "6.0",
           CFBundleName: "$(PRODUCT_NAME)",
           CFBundlePackageType: "$(PRODUCT_BUNDLE_PACKAGE_TYPE)",
-          CFBundleShortVersionString: "$(MARKETING_VERSION)",
-          CFBundleVersion: "$(CURRENT_PROJECT_VERSION)",
+          // Must match the app's versions, which prebuild writes into its Info.plist directly.
+          CFBundleShortVersionString: cfg.version ?? "1.0.0",
+          CFBundleVersion: cfg.ios?.buildNumber ?? "1",
           RTCAppGroupIdentifier: appGroup,
           NSExtension: {
             NSExtensionPointIdentifier: "com.apple.broadcast-services-upload",
@@ -85,7 +86,7 @@ function withExtensionTarget(config) {
     const project = cfg.modResults;
     if (project.pbxTargetByName(EXTENSION_NAME)) return cfg;
 
-    // Inherit version, deployment target and team from the app target so the two stay in sync.
+    // Inherit the deployment target and team from the app target so the two stay in sync.
     const appTarget = IOSConfig.XcodeUtils.getApplicationNativeTarget({
       project,
       projectName: cfg.modRequest.projectName,
@@ -133,11 +134,9 @@ function withExtensionTarget(config) {
         CLANG_ENABLE_MODULES: "YES",
         CODE_SIGN_ENTITLEMENTS: `${EXTENSION_NAME}/${EXTENSION_NAME}.entitlements`,
         CODE_SIGN_STYLE: "Automatic",
-        CURRENT_PROJECT_VERSION: appSettings.CURRENT_PROJECT_VERSION ?? "1",
         GENERATE_INFOPLIST_FILE: "NO",
         INFOPLIST_FILE: `${EXTENSION_NAME}/Info.plist`,
         IPHONEOS_DEPLOYMENT_TARGET: appSettings.IPHONEOS_DEPLOYMENT_TARGET ?? "16.4",
-        MARKETING_VERSION: appSettings.MARKETING_VERSION ?? "1.0",
         PRODUCT_BUNDLE_IDENTIFIER: extensionBundleId,
         PRODUCT_NAME: '"$(TARGET_NAME)"',
         SDKROOT: "iphoneos",

@@ -1,0 +1,19 @@
+Pod::Spec.new do |s|
+  s.name           = 'BroadcastStatus'
+  s.version        = '1.0.0'
+  s.summary        = 'Reports when the open2talk ReplayKit broadcast extension starts'
+  s.author         = ''
+  s.homepage       = 'https://github.com/open2talk/open2talk'
+  s.platforms      = { :ios => '16.4' }
+  s.swift_version  = '5.9'
+  s.source         = { git: '' }
+  s.static_framework = true
+
+  s.dependency 'ExpoModulesCore'
+
+  s.source_files = "**/*.{h,m,swift}"
+  s.pod_target_xcconfig = {
+    'DEFINES_MODULE' => 'YES',
+    'SWIFT_COMPILATION_MODE' => 'wholemodule'
+  }
+end

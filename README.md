@@ -112,8 +112,8 @@ Set the same `TURN_SECRET`, plus `TURN_URLS=turn:<your-host>:3478`, for the web 
 | Capability | Web (Chrome/Edge) | Web (Firefox/Safari) | Desktop (Electron) | Android | iOS |
 | --- | --- | --- | --- | --- | --- |
 | Video + audio | ✅ | ✅ | ✅ | ✅ | ✅ |
-| Screen share (video) | ✅ | ✅ | ✅ custom picker | ✅ MediaProjection | 🚧 needs broadcast extension |
-| Screen share **audio** | ✅ tab audio; full system audio on Windows | ❌ (browser limitation) | ✅ Windows; macOS 13+ (ScreenCaptureKit loopback, needs the system-audio permission); ❌ Linux | ✅ Android 10+: other apps' media/game audio (AudioPlaybackCapture), mixed into the mic track; apps can opt out | 🚧 planned (ReplayKit app audio) |
+| Screen share (video) | ✅ | ✅ | ✅ custom picker | ✅ MediaProjection | ✅ ReplayKit broadcast extension (physical device) |
+| Screen share **audio** | ✅ tab audio; full system audio on Windows | ❌ (browser limitation) | ✅ Windows; macOS 13+ (ScreenCaptureKit loopback, needs the system-audio permission); ❌ Linux | ✅ Android 10+: other apps' media/game audio (AudioPlaybackCapture), mixed into the mic track; apps can opt out | ❌ (react-native-webrtc only carries broadcast video) |
 | Hear others' screen audio | ✅ | ✅ | ✅ | ✅ | ✅ |
 
 Packaging the desktop app:
