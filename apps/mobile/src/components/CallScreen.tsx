@@ -1,7 +1,8 @@
 import { LOCAL_SPEAKER, roomUrl, type RemotePeer, type RoomSecret } from "@open2talk/core";
 import { SymbolView, type SymbolViewProps } from "expo-symbols";
 import { useEffect, useRef, useState } from "react";
-import Animated, { FadeIn, FadeInDown, LinearTransition, useAnimatedStyle, useSharedValue, withTiming, ZoomIn } from "react-native-reanimated";
+import Animated, { useAnimatedStyle, useSharedValue, withTiming } from "react-native-reanimated";
+import { Enter } from "./motion";
 import { ActivityIndicator, BackHandler, Modal, Platform, Pressable, Share, StyleSheet, Text, useWindowDimensions, View } from "react-native";
 import { StatusBar } from "expo-status-bar";
 import { RTCView, ScreenCapturePickerView } from "react-native-webrtc";
@@ -97,12 +98,12 @@ function Tile({
       {hasVideo ? (
         <RTCView streamURL={url} style={StyleSheet.absoluteFill} objectFit={contain ? "contain" : "cover"} mirror={mirror} zOrder={zOrder} />
       ) : (
-        <Animated.View entering={FadeIn.duration(motion.ui)} style={styles.avatar}>
+        <Enter rise={0} duration={motion.ui} style={styles.avatar}>
           <Text style={styles.avatarText}>{name.slice(0, 1).toUpperCase() || "?"}</Text>
-        </Animated.View>
+        </Enter>
       )}
       {/* Drawn on top as an inset border so the tile's size never changes. */}
-      {speaking && <Animated.View entering={FadeIn.duration(motion.ui)} style={styles.speaking} pointerEvents="none" />}
+      {speaking && <Enter rise={0} duration={motion.ui} style={styles.speaking} pointerEvents="none" />}
       {onPress && (
         <View style={styles.expand} pointerEvents="none">
           <SymbolView name={fullscreen ? icons.collapse : icons.expand} size={14} tintColor="#fff" />
@@ -294,14 +295,14 @@ export function CallScreen({
   return (
     <SafeAreaView style={ui.screen} edges={["top", "bottom", "left", "right"]}>
       {call.status !== "open" && (
-        <Animated.Text entering={FadeInDown.duration(motion.pop)} style={styles.banner}>
-          {call.status === "reconnecting" ? "Reconnecting…" : "Connecting…"}
-        </Animated.Text>
+        <Enter rise={-8} duration={motion.pop}>
+          <Text style={styles.banner}>{call.status === "reconnecting" ? "Reconnecting…" : "Connecting…"}</Text>
+        </Enter>
       )}
       {call.finishingShare && (
-        <Animated.Text entering={FadeInDown.duration(motion.pop)} style={styles.banner}>
-          Finishing previous share…
-        </Animated.Text>
+        <Enter rise={-8} duration={motion.pop}>
+          <Text style={styles.banner}>Finishing previous share…</Text>
+        </Enter>
       )}
       {call.warning && (
         <Pressable onPress={call.dismissWarning}>
@@ -331,22 +332,19 @@ export function CallScreen({
       ) : (
         <View style={styles.grid}>
           {tiles.map((t, i) => (
-            <Animated.View
-              key={t.key}
-              style={gridTile}
-              entering={ZoomIn.duration(motion.enter).delay(i * motion.stagger).easing(motion.easeOut).withInitialValues({ transform: [{ scale: 0.96 }] })}
-              layout={LinearTransition.duration(motion.enter).easing(motion.easeOut)}
-            >
+            <Enter key={t.key} style={gridTile} delay={i * motion.stagger} rise={0} scale={0.96}>
               {t.render({ flex: 1 })}
-            </Animated.View>
+            </Enter>
           ))}
         </View>
       )}
 
       {call.peers.length === 0 && call.status === "open" && (
-        <Animated.Text entering={FadeIn.duration(motion.enter).delay(300)} style={[ui.muted, { textAlign: "center", paddingHorizontal: 16 }]}>
-          Waiting for others. Share the link, or the room name and password.
-        </Animated.Text>
+        <Enter rise={0} delay={300}>
+          <Text style={[ui.muted, { textAlign: "center", paddingHorizontal: 16 }]}>
+            Waiting for others. Share the link, or the room name and password.
+          </Text>
+        </Enter>
       )}
 
       {Platform.OS === "ios" && (
@@ -371,7 +369,7 @@ export function CallScreen({
         </Pressable>
       </Modal>
 
-      <Animated.View entering={FadeInDown.duration(motion.enter).delay(120).easing(motion.easeOut)} style={styles.controls}>
+      <Enter delay={120} rise={16} style={styles.controls}>
         <Control label={call.micOn ? "Mute" : "Unmute"} icon={call.micOn ? icons.mic : icons.micOff} off={!call.micOn} onPress={call.toggleMic} />
         <Control label={call.camOn ? "Camera off" : "Camera on"} icon={call.camOn ? icons.cam : icons.camOff} off={!call.camOn} onPress={call.toggleCam} />
         <Control label="Switch camera" icon={icons.flip} onPress={() => void call.flipCamera()} />
@@ -394,7 +392,7 @@ export function CallScreen({
             onLeave();
           }}
         />
-      </Animated.View>
+      </Enter>
     </SafeAreaView>
   );
 }

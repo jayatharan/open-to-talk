@@ -1,30 +1,19 @@
 import { useState, type ReactNode } from "react";
 import { ActivityIndicator, Pressable, Text, TextInput, View, type LayoutChangeEvent, type TextInputProps } from "react-native";
-import Animated, {
-  FadeIn,
-  FadeInDown,
-  useAnimatedStyle,
-  useSharedValue,
-  withTiming,
-} from "react-native-reanimated";
+import Animated, { useAnimatedStyle, useSharedValue, withTiming } from "react-native-reanimated";
 import { colors, motion, ui } from "@/lib/theme";
+import { Enter } from "./motion";
 
 const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
 
 /** Glass panel. `index` staggers several cards on one screen so they arrive in reading order. */
 export function Card({ title, subtitle, children, index = 0 }: { title?: string; subtitle?: string; children: ReactNode; index?: number }) {
   return (
-    <Animated.View
-      style={ui.card}
-      entering={FadeInDown.duration(motion.enter).delay(index * motion.stagger).easing(motion.easeOut).withInitialValues({
-        opacity: 0,
-        transform: [{ translateY: motion.rise }],
-      })}
-    >
+    <Enter style={ui.card} delay={index * motion.stagger}>
       {title ? <Text style={ui.title}>{title}</Text> : null}
       {subtitle ? <Text style={ui.muted}>{subtitle}</Text> : null}
       {children}
-    </Animated.View>
+    </Enter>
   );
 }
 
@@ -89,9 +78,11 @@ export function Button({
 
 export function ErrorText({ children }: { children: ReactNode }) {
   return children ? (
-    <Animated.Text entering={FadeIn.duration(motion.pop)} style={ui.error} accessibilityLiveRegion="polite">
-      {children}
-    </Animated.Text>
+    <Enter rise={0} duration={motion.pop}>
+      <Text style={ui.error} accessibilityLiveRegion="polite">
+        {children}
+      </Text>
+    </Enter>
   ) : null;
 }
 

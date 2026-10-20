@@ -3,7 +3,7 @@ import * as Clipboard from "expo-clipboard";
 import { Link, Redirect, router, Stack } from "expo-router";
 import { useEffect, useState } from "react";
 import { Platform, Pressable, ScrollView, Share, Text, View } from "react-native";
-import Animated, { FadeIn } from "react-native-reanimated";
+import { Enter } from "@/components/motion";
 import { Button, Card, ErrorText, Field, Tabs } from "@/components/form";
 import { rememberSecret, useSettings } from "@/lib/settings";
 import { colors, motion, ui } from "@/lib/theme";
@@ -129,7 +129,7 @@ export default function HomeScreen() {
         ) : (
           <Card key="home">
             <Tabs options={TABS} value={tab} onChange={selectTab} />
-            <Animated.View key={tab} entering={FadeIn.duration(motion.ui)} style={{ gap: 14 }}>
+            <Enter key={tab} rise={0} duration={motion.ui} style={{ gap: 14 }}>
               {tab === "create" ? (
                 <Text style={ui.muted}>
                   Pick a room name and password. Anyone with the link joins directly; others can join with the name and password.
@@ -180,7 +180,7 @@ export default function HomeScreen() {
                 </Text>
               ) : null}
               <Field label="Your name" value={name} onChangeText={setName} placeholder="Alex" autoCapitalize="words" maxLength={40} />
-            </Animated.View>
+            </Enter>
             <ErrorText>{error}</ErrorText>
             <Button
               title={tab === "create" ? "Create call" : "Join call"}
