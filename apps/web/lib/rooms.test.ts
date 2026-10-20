@@ -1,6 +1,6 @@
 import type { ServerEvent } from "@open2talk/core";
 import { describe, expect, it } from "vitest";
-import { joinRoom, leaveRoom, relay } from "./rooms";
+import { joinRoom, leaveRoom, nameInUse, relay } from "./rooms";
 
 function sink() {
   const events: ServerEvent[] = [];
@@ -12,6 +12,17 @@ let n = 0;
 const roomId = () => `room${String(n++).padStart(18, "0")}`;
 
 describe("room registry", () => {
+  it("reports a room name as taken only while someone is in a call under it", () => {
+    const tag = roomId();
+    const r = roomId();
+    expect(nameInUse(tag)).toBe(false);
+    const j = joinRoom(r, "peerAAAAAAAA", sink(), "person", tag);
+    expect(nameInUse(tag)).toBe(true);
+    if (!j.ok) throw new Error();
+    leaveRoom(r, "peerAAAAAAAA", j.token);
+    expect(nameInUse(tag)).toBe(false);
+  });
+
   it("welcomes peers, announces joins and relays envelopes", () => {
     const r = roomId();
     const a = sink();

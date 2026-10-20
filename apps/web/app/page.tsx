@@ -7,17 +7,17 @@ const steps = [
   {
     state: "01 · Create",
     title: "The key is made on your device",
-    body: "Your room name and password go through PBKDF2 (310,000 rounds) with a random salt. That produces an encryption key, which never leaves the device, and a public room id.",
+    body: "Your room name and password go through PBKDF2 (310,000 rounds), salted with a hash of the room name. That produces an encryption key, which never leaves the device, and a public room id.",
   },
   {
     state: "02 · Share",
     title: "The link only locates the room",
-    body: "The link carries the salt and room id, nothing else. Send the password separately: a chat for the link, a call or message for the password.",
+    body: "The link carries the room id and, after the #, the room key. Browsers never send the part after # to the server, so anyone you give the link to can join directly while the server still learns nothing.",
   },
   {
-    state: "03 · Unlock",
-    title: "Wrong passwords never reach the network",
-    body: "The joiner's device re-derives the room id from what they type. If it doesn't match the link, it says “wrong name or password” before sending a single request.",
+    state: "03 · Join",
+    title: "With the link, or with the name and password",
+    body: "Someone without the link types the room name and password; their device derives the same key and room id and joins the same call. A different password simply leads to a different, empty room.",
   },
   {
     state: "04 · Connect",
@@ -59,7 +59,7 @@ const faqs = [
   },
   {
     q: "How strong does the password need to be?",
-    a: "The link contains the salt and room id, so someone who has the link could try to guess the password offline. PBKDF2 makes each guess slow, but a long passphrase is what really protects you. The form requires at least 8 characters.",
+    a: "The room id is derived from the room name and password, so anyone who sees it (including the server) could try to guess the password offline. PBKDF2 makes each guess slow, but a long passphrase is what really protects you. The form requires at least 8 characters. Treat the link itself like a password: it contains the room key.",
   },
   {
     q: "How many people can join?",
@@ -109,17 +109,18 @@ export default function LandingPage() {
         <section className="lp-hero lp-wrap" id="start">
           <div className="lp-hero-copy">
             <p className="lp-eyebrow">Open source · No accounts · No database</p>
-            <h1>Video calls that only open with the password.</h1>
+            <h1>Private video calls: send a link, or just a password.</h1>
             <p className="lp-lede">
-              Pick a room name and password, share the link, and talk. Share your screen with its sound
-              included, from the browser, your desktop or your phone.
+              Pick a room name and password. People with the link join in one click; anyone else joins
+              with the room name and password. Share your screen with its sound included, from the
+              browser, your desktop or your phone.
             </p>
             <ul className="lp-hero-points">
               <li>
                 <Check /> The password never leaves your device
               </li>
               <li>
-                <Check /> Wrong passwords are rejected before any network request
+                <Check /> The room key in the link is never sent to the server
               </li>
               <li>
                 <Check /> Audio and video go peer-to-peer
@@ -178,9 +179,10 @@ export default function LandingPage() {
             ))}
           </ol>
           <pre className="lp-flow" aria-label="Key derivation diagram">
-{`room name + password + salt ──PBKDF2──▶ ┌ AES-GCM key  (stays on device)
+{`salt = SHA-256(room name)
+room name + password + salt ──PBKDF2──▶ ┌ AES-GCM key  (never sent to the server)
                                          └ room id      (public)
-https://open2talk.cosmerg.com/r/<salt>.<room id>`}
+https://open2talk.cosmerg.com/r/<salt>.<room id>#k=<key>`}
           </pre>
         </section>
 

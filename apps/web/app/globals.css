@@ -238,15 +238,24 @@
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--lp-ok) 20%, transparent);
 }
 
-/* The shared call-react form, re-themed light for the landing page. */
+/* The shared call-react panel, re-themed light for the landing page: black primary action,
+   the signal blue only for focus and selection. */
 .lp-stage-card {
   --o2t-surface: #ffffff;
-  --o2t-surface-2: #f3f6fb;
+  --o2t-surface-solid: #ffffff;
+  --o2t-surface-2: #ffffff;
+  --o2t-field: #f3f6fb;
   --o2t-border: #dfe5ee;
+  --o2t-border-strong: #c6d0de;
   --o2t-text: #0b0d12;
   --o2t-muted: #5b6573;
-  --o2t-accent: #0b0d12;
+  --o2t-accent: #2f6fed;
   --o2t-accent-text: #ffffff;
+  --o2t-danger: #c2373d;
+  --o2t-ok: #1f8a4c;
+  --o2t-panel-bg: #ffffff;
+  --o2t-panel-shadow: 0 1px 2px rgb(11 13 18 / 0.04), 0 16px 40px -12px rgb(47 111 237 / 0.22);
+  --o2t-panel-edge: linear-gradient(160deg, #dfe5ee, rgb(47 111 237 / 0.35) 50%, #dfe5ee);
   width: 100%;
   display: flex;
   justify-content: center;
@@ -255,13 +264,30 @@
 
 .lp-stage-card .o2t-card {
   width: min(440px, 100%);
-  box-shadow:
-    0 1px 2px rgb(11 13 18 / 0.04),
-    0 12px 32px -8px rgb(47 111 237 / 0.18);
 }
 
-.lp-stage-card .o2t-form input:focus {
-  border-color: var(--lp-signal);
+.lp-stage-card .o2t-primary {
+  background: #0b0d12;
+  color: #ffffff;
+  box-shadow: 0 8px 20px -10px rgb(11 13 18 / 0.6);
+}
+
+.lp-stage-card .o2t-primary:hover:not(:disabled) {
+  background: #1d2230;
+  box-shadow: 0 10px 24px -10px rgb(11 13 18 / 0.7);
+}
+
+.lp-stage-card .o2t-tab-indicator {
+  box-shadow: 0 1px 2px rgb(11 13 18 / 0.08), 0 0 0 1px #dfe5ee;
+}
+
+.lp-stage-card .o2t-form input::placeholder {
+  color: #8a94a3;
+}
+
+/* Overscroll past the light landing page shouldn't reveal the app's dark background. */
+body:has(.lp) {
+  background: #f6f9fd;
 }
 
 @media (max-width: 900px) {

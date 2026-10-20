@@ -2,8 +2,9 @@ import { randomBytes } from "node:crypto";
 import { MAX_PEERS_PER_ROOM, MAX_SCREENS_PER_ROOM, type Envelope, type PeerRole, type ServerEvent, type SignalRequest } from "@open2talk/core";
 
 /**
- * In-memory room registry. This is the only server state: who is connected to which room id.
- * It holds no names, passwords or keys, and everything disappears when the last peer leaves.
+ * In-memory room registry. This is the only server state: who is connected to which room id, and
+ * each room's name tag (a hash of the room name, also visible in `/r/<slug>` URLs). It holds no
+ * names, passwords or keys, and everything disappears when the last peer leaves.
  */
 
 export interface PeerSink {
@@ -16,6 +17,8 @@ interface Peer {
   token: string;
   /** Claimed by the client (the server can't read payloads); only used for the room allowances. */
   role: PeerRole;
+  /** Name-derived salt the client reports, so a second call can't be created under the same name. */
+  nameTag?: string;
   sink: PeerSink;
 }
 
@@ -35,7 +38,13 @@ const maxScreens = Number(process.env.MAX_SCREENS_PER_ROOM) || MAX_SCREENS_PER_R
 
 export type JoinResult = { ok: true; token: string } | { ok: false; reason: "room-full" | "screen-limit" };
 
-export function joinRoom(roomId: string, peerId: string, sink: PeerSink, role: PeerRole = "person"): JoinResult {
+export function joinRoom(
+  roomId: string,
+  peerId: string,
+  sink: PeerSink,
+  role: PeerRole = "person",
+  nameTag?: string,
+): JoinResult {
   let room = registry.rooms.get(roomId);
   const existing = room?.get(peerId);
 
@@ -58,7 +67,7 @@ export function joinRoom(roomId: string, peerId: string, sink: PeerSink, role: P
 
   const token = randomBytes(24).toString("base64url");
   const peers = [...room.keys()].filter((id) => id !== peerId);
-  room.set(peerId, { id: peerId, token, role, sink });
+  room.set(peerId, { id: peerId, token, role, nameTag, sink });
   registry.tokens.set(token, { roomId, peerId });
 
   sink.send({ type: "welcome", token, peers });
@@ -98,6 +107,14 @@ export function relay(roomId: string, token: string, req: SignalRequest): RelayR
 
 function broadcast(room: Room, event: ServerEvent, except?: string): void {
   for (const peer of room.values()) if (peer.id !== except) peer.sink.send(event);
+}
+
+/** True while anyone is connected to a room created under this name. */
+export function nameInUse(nameTag: string): boolean {
+  for (const room of registry.rooms.values()) {
+    for (const peer of room.values()) if (peer.nameTag === nameTag) return true;
+  }
+  return false;
 }
 
 export function stats(): { rooms: number; peers: number } {

@@ -4,32 +4,32 @@
 
 Open-source video calls with screen sharing (including screen audio) for **web, desktop (macOS / Windows / Linux), Android and iOS**.
 
-- **No accounts, no sign-up, no database.** A call is just a link plus a room name and password.
-- **Password-gated.** People with only the link can't join: the room name and password derive the key that encrypts the whole call setup.
+- **No accounts, no sign-up, no database.** A call is just a room name and password.
+- **Two ways in.** Anyone with the call link joins directly (the room key rides in the link's `#fragment`, which never reaches the server). Anyone without it joins by typing the room name and password, which derive the same key.
 - **Peer-to-peer WebRTC.** Media flows directly between participants (mesh, best for up to about 6 people).
 - **Self-hostable.** A single Next.js server provides the web app and the signaling API. The native apps point at any server you choose in **Settings**.
 
 ## How it works
 
 ```
- create call                                  join call
- ───────────                                  ─────────
- name + password ─┐                           link ─► salt, roomId
- random salt ─────┤ PBKDF2-SHA256 (310k)       name + password + salt ─► PBKDF2
-                  ▼                                     ▼
-          ┌── 32-byte AES-GCM key (stays on device)    derived roomId == link roomId ?
-          └── 16-byte roomId (public)                    no  → "wrong name or password" (no network)
-                                                         yes → connect
- link = https://host/r/<salt>.<roomId>
+ create call / join by name                    join by link
+ ──────────────────────────                    ────────────
+ salt = SHA-256(name)[0..16]                   link ─► salt, roomId, #k=key
+ name + password + salt ─┐ PBKDF2-SHA256 (310k)           ▼
+                         ▼                          import key, connect
+          ┌── 32-byte AES-GCM key (never sent to the server)
+          └── 16-byte roomId (public)
+
+ link = https://host/r/<salt>.<roomId>#k=<key>
 ```
 
-1. The creator picks a room name and password. The client derives an AES-GCM **room key** and a public **room id** from them with a random salt. The link is `https://<host>/r/<salt>.<roomId>`.
-2. A joiner opens the link and types the name and password. Their device re-derives the room id and checks that it matches the link. A wrong name or password is rejected locally, before any network request.
+1. The creator picks a room name and password. The client derives an AES-GCM **room key** and a public **room id** from them, with a salt derived from the room name. The link is `https://<host>/r/<salt>.<roomId>#k=<key>`.
+2. A joiner either opens the link, which hands their device the key directly (browsers never send the `#` part to the server), or types the room name and password, which re-derive the same salt, key and room id. A wrong password just leads to a different, empty room. (Older links without `#k=` still ask for the name and password and reject a wrong one locally.)
 3. Every signaling message (SDP offers and answers, ICE candidates, and the participant state that carries the DTLS certificate fingerprints) is **sealed with AES-GCM** using the room key. The room id is bound as additional authenticated data.
 4. The server only relays opaque envelopes between connections in the same room, over **Server-Sent Events** (server → client) and **POST** (client → server). It never sees names, passwords, keys or SDP, so it can't man-in-the-middle the call.
 5. WebRTC connects peer-to-peer. Media is encrypted by DTLS-SRTP as usual.
 
-> **Note:** The link contains the salt and room id, so a weak password can be brute-forced offline. PBKDF2 makes that slow, and the UI requires at least 8 characters and shows a strength hint. Use a passphrase, and send it through a different channel from the link.
+> **Note:** The room id is derived from the name and password, so anyone who sees it (the server included) can try to brute-force a weak password offline. PBKDF2 makes that slow, and the UI requires at least 8 characters and shows a strength hint. Use a passphrase. Treat the link like a password too: it contains the room key.
 
 ## Repository layout
 
@@ -137,7 +137,8 @@ Mobile store builds use EAS (`npx eas-cli build`) from `apps/mobile`.
 ## Security notes
 
 - The server is untrusted by design. It can see who is connected to which room id (IP addresses and timing) but not names, passwords, keys or signaling contents.
-- An outsider with only the link can open an SSE stream to the room id. All they get is ciphertext. Peers drop anything that fails to decrypt, so the outsider never appears in the call.
+- Clients also report the room's salt (a SHA-256 hash of the room name, already visible in `/r/<slug>` URLs) so the server can refuse to let a second call be created under a name that's in use. Someone running the server could guess common room names from it, but not passwords.
+- An outsider who knows only the room id can open an SSE stream to it. All they get is ciphertext. Peers drop anything that fails to decrypt, so the outsider never appears in the call.
 - Each SSE connection gets a random token, and the server stamps the sender on relayed messages from that token, so peers can't spoof each other. Sealed payloads also repeat sender and recipient, which prevents replay across peers.
 - Media is end-to-end between peers (DTLS-SRTP). A TURN relay only forwards encrypted packets.
 

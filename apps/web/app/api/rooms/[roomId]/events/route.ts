@@ -18,7 +18,8 @@ export async function GET(req: Request, ctx: { params: Promise<{ roomId: string 
   const params = new URL(req.url).searchParams;
   const peerId = params.get("peer") ?? "";
   const role = params.get("role") === "screen" ? "screen" : "person";
-  if (!isRoomId(roomId) || !peerIdSchema.safeParse(peerId).success) {
+  const nameTag = params.get("name") ?? undefined;
+  if (!isRoomId(roomId) || !peerIdSchema.safeParse(peerId).success || (nameTag && !isRoomId(nameTag))) {
     return json({ error: "bad-request" }, 400);
   }
 
@@ -59,7 +60,7 @@ export async function GET(req: Request, ctx: { params: Promise<{ roomId: string 
         return;
       }
 
-      const result = joinRoom(roomId, peerId, sink, role);
+      const result = joinRoom(roomId, peerId, sink, role, nameTag);
       if (!result.ok) {
         sink.send(
           result.reason === "screen-limit"

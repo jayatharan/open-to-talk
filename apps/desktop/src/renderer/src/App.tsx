@@ -1,12 +1,13 @@
 import {
   CallView,
-  CreateRoomForm,
+  DirectJoinForm,
+  HomePanel,
   JoinRoomForm,
   ScreenSourcePicker,
   ShareLink,
   type ScreenSource,
 } from "@open2talk/call-react";
-import { checkHost, extractHost, extractSlug, normalizeHost, roomUrl, type RoomSecret } from "@open2talk/core";
+import { checkHost, extractHost, joinFromLink, normalizeHost, parseRoomLink, roomUrl, type RoomLink, type RoomSecret } from "@open2talk/core";
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import logo from "./assets/logo.svg";
 
@@ -16,6 +17,7 @@ type Screen =
   | { name: "home" }
   | { name: "share"; slug: string; secret: RoomSecret; displayName: string }
   | { name: "join"; slug: string }
+  | { name: "direct"; slug: string; secret: RoomSecret }
   | { name: "call"; slug: string; secret: RoomSecret; displayName: string };
 
 const api = window.open2talk;
@@ -26,10 +28,19 @@ export function App() {
   const [picker, setPicker] = useState<{ sources: ScreenSource[]; audioSupported: boolean } | null>(null);
   const pickerResolve = useRef<((ok: boolean) => void) | null>(null);
 
-  const openLink = useCallback((link: string) => {
-    const slug = extractSlug(link);
-    if (slug) setScreen({ name: "join", slug });
+  // A direct link (with #k=) only needs a display name; a key-less one needs the name + password.
+  const openRoomLink = useCallback(async ({ slug, linkKey }: RoomLink) => {
+    const secret = linkKey ? await joinFromLink(slug, linkKey) : null;
+    setScreen(secret ? { name: "direct", slug, secret } : { name: "join", slug });
   }, []);
+
+  const openLink = useCallback(
+    (link: string) => {
+      const parsed = parseRoomLink(link);
+      if (parsed) void openRoomLink(parsed);
+    },
+    [openRoomLink],
+  );
 
   useEffect(() => {
     void (async () => {
@@ -71,7 +82,7 @@ export function App() {
           host={host}
           secret={screen.secret}
           displayName={screen.displayName}
-          shareUrl={roomUrl(host, screen.slug)}
+          shareUrl={roomUrl(host, screen.slug, screen.secret.linkKey)}
           onLeave={() => setScreen({ name: "home" })}
           beforeScreenShare={beforeScreenShare}
         />
@@ -110,23 +121,39 @@ export function App() {
         )}
         {screen.name === "home" && (
           <>
-            <CreateRoomForm onCreated={(r) => setScreen({ name: "share", ...r })} />
-            <JoinByLink host={host} onSlug={(slug) => setScreen({ name: "join", slug })} onUseHost={async (h) => {
-              await api.setSettings({ host: h });
-              setHost(h);
-            }} />
+            <HomePanel
+              host={host}
+              onCreated={(r) => setScreen({ name: "share", ...r })}
+              onJoined={(r) => setScreen({ name: "call", ...r })}
+              onLink={(link) => void openRoomLink(link)}
+              linkHint={(link) => (
+                <OtherHostHint
+                  host={host}
+                  link={link}
+                  onUseHost={async (h) => {
+                    await api.setSettings({ host: h });
+                    setHost(h);
+                  }}
+                />
+              )}
+            />
           </>
         )}
         {screen.name === "share" && (
           <ShareLink
-            url={roomUrl(host, screen.slug)}
+            url={roomUrl(host, screen.slug, screen.secret.linkKey)}
             onJoin={() => setScreen({ ...screen, name: "call" })}
           />
         )}
         {screen.name === "join" && (
           <JoinRoomForm
             slug={screen.slug}
-            onUnlocked={({ secret, displayName }) => setScreen({ name: "call", slug: screen.slug, secret, displayName })}
+            onUnlocked={(r) => setScreen({ name: "call", ...r })}
+          />
+        )}
+        {screen.name === "direct" && (
+          <DirectJoinForm
+            onJoin={(displayName) => setScreen({ name: "call", slug: screen.slug, secret: screen.secret, displayName })}
           />
         )}
       </main>
@@ -194,48 +221,16 @@ function SettingsForm({
   );
 }
 
-function JoinByLink({
-  host,
-  onSlug,
-  onUseHost,
-}: {
-  host: string;
-  onSlug: (slug: string) => void;
-  onUseHost: (host: string) => Promise<void>;
-}) {
-  const [link, setLink] = useState("");
-  const [error, setError] = useState<string | null>(null);
+/** A pasted link can point at a different server than the one this app is set to. */
+function OtherHostHint({ host, link, onUseHost }: { host: string; link: string; onUseHost: (host: string) => Promise<void> }) {
   const linkHost = extractHost(link);
-  const otherHost = linkHost && linkHost !== host ? linkHost : null;
-
-  function submit(e: FormEvent) {
-    e.preventDefault();
-    const slug = extractSlug(link);
-    if (!slug) {
-      setError("That doesn't look like an open2talk call link.");
-      return;
-    }
-    onSlug(slug);
-  }
-
+  if (!linkHost || linkHost === host) return null;
   return (
-    <form className="o2t-card o2t-form" onSubmit={submit}>
-      <h2>Join with a link</h2>
-      <p className="o2t-muted">Paste the call link you received.</p>
-      <label>
-        Call link
-        <input value={link} onChange={(e) => setLink(e.target.value)} placeholder="https://…/r/…" required />
-      </label>
-      {otherHost && (
-        <p className="o2t-muted">
-          This link is for <strong>{otherHost}</strong>, but you're using {host || "no server"}.{" "}
-          <button type="button" className="d-link" onClick={() => void onUseHost(otherHost)}>
-            Switch to {otherHost}
-          </button>
-        </p>
-      )}
-      {error && <p className="o2t-error">{error}</p>}
-      <button className="o2t-btn o2t-primary">Continue</button>
-    </form>
+    <p className="o2t-hint">
+      This link is for <strong>{linkHost}</strong>, but you're using {host || "no server"}.{" "}
+      <button type="button" onClick={() => void onUseHost(linkHost)}>
+        Switch to {linkHost}
+      </button>
+    </p>
   );
 }

@@ -5,12 +5,23 @@
 }
 
 .d-top {
+  position: sticky;
+  top: 0;
+  z-index: 10;
   display: flex;
   align-items: center;
   justify-content: space-between;
   padding: 12px 16px;
   border-bottom: 1px solid var(--o2t-border);
+  background: rgb(5 8 22 / 0.55);
+  backdrop-filter: var(--o2t-blur);
+  -webkit-backdrop-filter: var(--o2t-blur);
   -webkit-app-region: drag;
+}
+
+.d-top > div {
+  display: flex;
+  align-items: center;
 }
 
 .d-top button,
@@ -31,20 +42,30 @@
 }
 
 .d-host {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   color: var(--o2t-muted);
-  font-size: 0.8rem;
+  font-family: var(--o2t-mono);
+  font-size: 0.75rem;
   margin-right: 12px;
+}
+
+/* Shows the app is pointed at a server, without a fake "online" claim. */
+.d-host::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--o2t-accent);
+  box-shadow: 0 0 0 3px rgb(96 165 250 / 0.18);
 }
 
 .d-main {
   flex: 1;
-  display: flex;
-  flex-wrap: wrap;
-  align-items: flex-start;
-  justify-content: center;
-  align-content: center;
-  gap: 20px;
-  padding: 24px 16px;
+  display: grid;
+  place-items: center;
+  padding: 32px 16px;
 }
 
 .d-link {
@@ -57,7 +78,7 @@
 }
 
 .d-ok {
-  color: #46a758;
+  color: var(--o2t-ok);
   margin: 0;
   font-size: 0.9rem;
 }

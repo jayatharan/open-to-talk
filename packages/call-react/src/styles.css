@@ -1,16 +1,38 @@
 :root {
-  --o2t-bg: #0d0f12;
-  --o2t-surface: #161a20;
-  --o2t-surface-2: #1e232b;
-  --o2t-border: #2a313b;
-  --o2t-text: #e8ebef;
-  --o2t-muted: #8b95a3;
-  --o2t-accent: #4f8cff;
-  --o2t-accent-text: #ffffff;
-  --o2t-danger: #e5484d;
+  /* Surfaces: deep navy with frosted glass panels on top. */
+  --o2t-bg: #050816;
+  --o2t-bg-2: #0b1220;
+  --o2t-surface: rgb(15 23 42 / 0.55);
+  --o2t-surface-solid: #0f172a;
+  --o2t-surface-2: rgb(30 41 59 / 0.6);
+  --o2t-field: rgb(2 6 23 / 0.55);
+  --o2t-border: rgb(148 163 184 / 0.16);
+  --o2t-border-strong: rgb(148 163 184 / 0.3);
+  --o2t-text: #e2e8f0;
+  --o2t-muted: #94a3b8;
+  --o2t-accent: #60a5fa;
+  --o2t-accent-strong: #3b82f6;
+  --o2t-accent-text: #04101f;
+  --o2t-danger: #f2555a;
   --o2t-warn: #f5a524;
-  --o2t-radius: 14px;
+  --o2t-ok: #4ade80;
+  --o2t-radius: 20px;
+  --o2t-radius-sm: 12px;
   --o2t-font: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --o2t-mono: ui-monospace, SFMono-Regular, Menlo, monospace;
+  --o2t-panel-bg: linear-gradient(180deg, rgb(255 255 255 / 0.06), rgb(255 255 255 / 0.015)), var(--o2t-surface);
+  --o2t-panel-shadow: 0 24px 56px rgb(2 6 23 / 0.5), inset 0 1px 0 rgb(255 255 255 / 0.08);
+  --o2t-panel-edge: linear-gradient(145deg, rgb(148 163 184 / 0.32), rgb(96 165 250 / 0.38) 45%, rgb(168 85 247 / 0.26) 72%, rgb(148 163 184 / 0.12));
+  --o2t-blur: blur(18px) saturate(140%);
+
+  /* Motion: short and quiet. One set, reused everywhere. */
+  --o2t-ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --o2t-ease-in: cubic-bezier(0.55, 0, 1, 0.45);
+  --o2t-dur-micro: 140ms;
+  --o2t-dur-ui: 200ms;
+  --o2t-dur-pop: 240ms;
+  --o2t-dur-enter: 420ms;
+  --o2t-rise: 12px;
 }
 
 * {
@@ -21,17 +43,55 @@ html,
 body {
   margin: 0;
   height: 100%;
-  background: var(--o2t-bg);
   color: var(--o2t-text);
   font-family: var(--o2t-font);
   -webkit-font-smoothing: antialiased;
 }
 
+body {
+  background:
+    radial-gradient(1200px 600px at 15% -10%, rgb(59 130 246 / 0.14), transparent 60%),
+    radial-gradient(900px 500px at 110% 110%, rgb(139 92 246 / 0.1), transparent 60%),
+    linear-gradient(180deg, var(--o2t-bg), var(--o2t-bg-2));
+  background-attachment: fixed;
+  background-color: var(--o2t-bg);
+}
+
 button,
-input {
+input,
+select {
   font: inherit;
   color: inherit;
 }
+
+:focus-visible {
+  outline: 2px solid var(--o2t-accent);
+  outline-offset: 2px;
+}
+
+/* ------------------------------------------------------------------ motion primitives */
+
+@keyframes o2t-enter {
+  from {
+    opacity: 0;
+    transform: translateY(var(--o2t-rise));
+  }
+}
+
+@keyframes o2t-pop {
+  from {
+    opacity: 0;
+    transform: scale(0.97);
+  }
+}
+
+@keyframes o2t-fade {
+  from {
+    opacity: 0;
+  }
+}
+
+/* ------------------------------------------------------------------ panels + forms */
 
 .o2t-center {
   min-height: 100dvh;
@@ -41,10 +101,34 @@ input {
 }
 
 .o2t-card {
-  background: var(--o2t-surface);
-  border: 1px solid var(--o2t-border);
+  position: relative;
+  background: var(--o2t-panel-bg);
   border-radius: var(--o2t-radius);
+  box-shadow: var(--o2t-panel-shadow);
+  backdrop-filter: var(--o2t-blur);
+  -webkit-backdrop-filter: var(--o2t-blur);
   padding: 24px;
+  animation: o2t-enter var(--o2t-dur-enter) var(--o2t-ease-out) both;
+}
+
+/* Masked gradient hairline around key panels. */
+.o2t-card::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  padding: 1px;
+  background: var(--o2t-panel-edge);
+  -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  pointer-events: none;
+}
+
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .o2t-card {
+    background: var(--o2t-surface-solid);
+  }
 }
 
 .o2t-form {
@@ -57,6 +141,8 @@ input {
 .o2t-form h2 {
   margin: 0;
   font-size: 1.25rem;
+  font-weight: 600;
+  letter-spacing: -0.01em;
   display: flex;
   align-items: center;
   gap: 8px;
@@ -66,34 +152,50 @@ input {
   display: flex;
   flex-direction: column;
   gap: 6px;
-  font-size: 0.875rem;
+  font-size: 0.8125rem;
+  font-weight: 500;
   color: var(--o2t-muted);
 }
 
 .o2t-form input {
-  background: var(--o2t-surface-2);
+  background: var(--o2t-field);
   border: 1px solid var(--o2t-border);
-  border-radius: 10px;
-  padding: 10px 12px;
+  border-radius: var(--o2t-radius-sm);
+  padding: 11px 13px;
   font-size: 1rem;
   outline: none;
+  transition:
+    border-color var(--o2t-dur-ui) var(--o2t-ease-out),
+    box-shadow var(--o2t-dur-ui) var(--o2t-ease-out),
+    background-color var(--o2t-dur-ui) var(--o2t-ease-out);
+}
+
+.o2t-form input::placeholder {
+  color: rgb(148 163 184 / 0.6);
+}
+
+.o2t-form input:hover {
+  border-color: var(--o2t-border-strong);
 }
 
 .o2t-form input:focus {
   border-color: var(--o2t-accent);
+  box-shadow: 0 0 0 4px rgb(96 165 250 / 0.18);
 }
 
 .o2t-muted {
   color: var(--o2t-muted);
   margin: 0;
   font-size: 0.9rem;
-  line-height: 1.45;
+  line-height: 1.5;
 }
 
 .o2t-error {
   color: var(--o2t-danger);
   margin: 0;
   font-size: 0.9rem;
+  line-height: 1.45;
+  animation: o2t-pop var(--o2t-dur-pop) var(--o2t-ease-out) both;
 }
 
 .o2t-strength {
@@ -104,44 +206,72 @@ input {
 }
 
 .o2t-strength-bar {
+  position: relative;
   width: 64px;
   height: 4px;
   border-radius: 2px;
-  background: linear-gradient(90deg, var(--o2t-c, var(--o2t-danger)) var(--o2t-w, 15%), var(--o2t-border) 0);
+  background: var(--o2t-border-strong);
+  overflow: hidden;
 }
 
-.o2t-strength[data-score="1"] { --o2t-w: 30%; --o2t-c: var(--o2t-warn); }
-.o2t-strength[data-score="2"] { --o2t-w: 55%; --o2t-c: var(--o2t-warn); }
-.o2t-strength[data-score="3"] { --o2t-w: 80%; --o2t-c: #46a758; }
-.o2t-strength[data-score="4"] { --o2t-w: 100%; --o2t-c: #46a758; }
+.o2t-strength-bar::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: var(--o2t-c, var(--o2t-danger));
+  transform-origin: left;
+  transform: scaleX(var(--o2t-w, 0.15));
+  transition:
+    transform var(--o2t-dur-ui) var(--o2t-ease-out),
+    background-color var(--o2t-dur-ui) var(--o2t-ease-out);
+}
+
+.o2t-strength[data-score="1"] { --o2t-w: 0.3; --o2t-c: var(--o2t-warn); }
+.o2t-strength[data-score="2"] { --o2t-w: 0.55; --o2t-c: var(--o2t-warn); }
+.o2t-strength[data-score="3"] { --o2t-w: 0.8; --o2t-c: var(--o2t-ok); }
+.o2t-strength[data-score="4"] { --o2t-w: 1; --o2t-c: var(--o2t-ok); }
 
 .o2t-btn {
   border: 1px solid var(--o2t-border);
   background: var(--o2t-surface-2);
-  border-radius: 10px;
-  padding: 10px 16px;
+  border-radius: var(--o2t-radius-sm);
+  padding: 11px 16px;
   cursor: pointer;
-  font-weight: 500;
+  font-weight: 600;
+  text-decoration: none;
+  text-align: center;
+  transition:
+    transform var(--o2t-dur-micro) var(--o2t-ease-out),
+    border-color var(--o2t-dur-ui) var(--o2t-ease-out),
+    background-color var(--o2t-dur-ui) var(--o2t-ease-out),
+    box-shadow var(--o2t-dur-ui) var(--o2t-ease-out),
+    opacity var(--o2t-dur-ui) var(--o2t-ease-out);
 }
 
-.o2t-btn:hover {
-  border-color: var(--o2t-muted);
+.o2t-btn:hover:not(:disabled) {
+  border-color: var(--o2t-border-strong);
 }
 
+.o2t-btn:active:not(:disabled) {
+  transform: scale(0.98);
+}
+
+/* Disabled keeps its identity; it just recedes. */
 .o2t-btn:disabled {
-  opacity: 0.5;
+  opacity: 0.45;
   cursor: not-allowed;
 }
 
 .o2t-primary {
-  background: var(--o2t-accent);
-  border-color: var(--o2t-accent);
+  background: linear-gradient(180deg, #7cb6fc, var(--o2t-accent));
+  border-color: transparent;
   color: var(--o2t-accent-text);
+  box-shadow: 0 8px 24px -10px rgb(96 165 250 / 0.7), inset 0 1px 0 rgb(255 255 255 / 0.35);
 }
 
-.o2t-primary:hover {
-  filter: brightness(1.08);
-  border-color: var(--o2t-accent);
+.o2t-primary:hover:not(:disabled) {
+  border-color: transparent;
+  box-shadow: 0 10px 28px -10px rgb(96 165 250 / 0.9), inset 0 1px 0 rgb(255 255 255 / 0.35);
 }
 
 .o2t-share {
@@ -152,8 +282,98 @@ input {
 .o2t-share input {
   flex: 1;
   min-width: 0;
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-family: var(--o2t-mono);
   font-size: 0.8rem;
+}
+
+/* ------------------------------------------------------------------ home panel tabs */
+
+.o2t-home {
+  width: min(440px, 100%);
+}
+
+.o2t-tabs {
+  position: relative;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  padding: 4px;
+  border-radius: 14px;
+  background: var(--o2t-field);
+  border: 1px solid var(--o2t-border);
+}
+
+.o2t-tab {
+  position: relative;
+  z-index: 1;
+  border: none;
+  background: transparent;
+  padding: 9px 12px;
+  border-radius: 10px;
+  font-weight: 600;
+  font-size: 0.9rem;
+  color: var(--o2t-muted);
+  cursor: pointer;
+  transition: color var(--o2t-dur-ui) var(--o2t-ease-out);
+}
+
+.o2t-tab[aria-selected="true"] {
+  color: var(--o2t-text);
+}
+
+/* The selected pill slides between tabs instead of jumping. */
+.o2t-tab-indicator {
+  position: absolute;
+  top: 4px;
+  bottom: 4px;
+  left: 4px;
+  width: calc(50% - 4px);
+  border-radius: 10px;
+  background: var(--o2t-surface-2);
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.08), 0 1px 2px rgb(0 0 0 / 0.3);
+  transform: translateX(calc(var(--o2t-tab, 0) * 100%));
+  transition: transform var(--o2t-dur-pop) var(--o2t-ease-out);
+}
+
+.o2t-tabpanel {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  animation: o2t-fade var(--o2t-dur-ui) var(--o2t-ease-out) both;
+}
+
+.o2t-or {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  color: var(--o2t-muted);
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.o2t-or::before,
+.o2t-or::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: var(--o2t-border);
+}
+
+.o2t-hint {
+  margin: 0;
+  font-size: 0.85rem;
+  color: var(--o2t-muted);
+  line-height: 1.45;
+  animation: o2t-pop var(--o2t-dur-pop) var(--o2t-ease-out) both;
+}
+
+.o2t-hint button {
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--o2t-accent);
+  cursor: pointer;
+  font-weight: 600;
 }
 
 /* ------------------------------------------------------------------ call */
@@ -163,9 +383,10 @@ input {
   height: 100dvh;
   display: flex;
   flex-direction: column;
-  padding: 16px 16px 88px;
+  padding: 16px 16px 96px;
   gap: 12px;
   overflow: hidden;
+  animation: o2t-fade var(--o2t-dur-enter) var(--o2t-ease-out) both;
 }
 
 .o2t-grid {
@@ -227,11 +448,14 @@ input {
 
 .o2t-tile {
   position: relative;
-  background: var(--o2t-surface);
+  background:
+    radial-gradient(120% 90% at 50% 0%, rgb(96 165 250 / 0.08), transparent 70%),
+    var(--o2t-surface-solid);
   border: 1px solid var(--o2t-border);
   border-radius: var(--o2t-radius);
   overflow: hidden;
   min-height: 0;
+  animation: o2t-pop var(--o2t-dur-enter) var(--o2t-ease-out) both;
 }
 
 .o2t-tile video {
@@ -240,11 +464,13 @@ input {
   width: 100%;
   height: 100%;
   object-fit: cover;
-  background: #000;
+  background: transparent;
+  transition: opacity var(--o2t-dur-enter) var(--o2t-ease-out);
 }
 
 .o2t-tile-screen video {
   object-fit: contain;
+  background: #000;
 }
 
 .o2t-mirror {
@@ -255,14 +481,16 @@ input {
   position: absolute;
   inset: 0;
   margin: auto;
-  width: 72px;
-  height: 72px;
+  width: 76px;
+  height: 76px;
   border-radius: 50%;
   display: grid;
   place-items: center;
-  background: var(--o2t-surface-2);
+  background: linear-gradient(160deg, rgb(96 165 250 / 0.28), rgb(139 92 246 / 0.22));
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.15), 0 0 0 1px rgb(148 163 184 / 0.18);
   font-size: 1.75rem;
   font-weight: 600;
+  animation: o2t-fade var(--o2t-dur-ui) var(--o2t-ease-out) both;
 }
 
 .o2t-tile-label {
@@ -272,10 +500,14 @@ input {
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 4px 10px;
-  border-radius: 8px;
-  background: rgb(0 0 0 / 0.55);
+  padding: 5px 10px;
+  border-radius: 10px;
+  background: rgb(2 6 23 / 0.55);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border: 1px solid rgb(148 163 184 / 0.14);
   font-size: 0.8rem;
+  font-weight: 500;
   max-width: calc(100% - 20px);
   white-space: nowrap;
   overflow: hidden;
@@ -295,14 +527,25 @@ input {
 .o2t-controls {
   position: absolute;
   left: 50%;
-  bottom: 16px;
+  bottom: 18px;
   transform: translateX(-50%);
   display: flex;
   gap: 10px;
   padding: 8px;
   border-radius: 999px;
-  background: var(--o2t-surface);
+  background: var(--o2t-panel-bg);
+  backdrop-filter: var(--o2t-blur);
+  -webkit-backdrop-filter: var(--o2t-blur);
   border: 1px solid var(--o2t-border);
+  box-shadow: var(--o2t-panel-shadow);
+  animation: o2t-controls-in var(--o2t-dur-enter) var(--o2t-ease-out) 120ms both;
+}
+
+@keyframes o2t-controls-in {
+  from {
+    opacity: 0;
+    transform: translate(-50%, 16px);
+  }
 }
 
 .o2t-round {
@@ -310,15 +553,25 @@ input {
   width: 48px;
   height: 48px;
   border-radius: 50%;
-  border: none;
+  border: 1px solid transparent;
   background: var(--o2t-surface-2);
   display: grid;
   place-items: center;
   cursor: pointer;
+  transition:
+    transform var(--o2t-dur-micro) var(--o2t-ease-out),
+    background-color var(--o2t-dur-ui) var(--o2t-ease-out),
+    color var(--o2t-dur-ui) var(--o2t-ease-out),
+    border-color var(--o2t-dur-ui) var(--o2t-ease-out);
 }
 
-.o2t-round:hover {
-  filter: brightness(1.2);
+.o2t-round:hover:not(:disabled) {
+  border-color: var(--o2t-border-strong);
+  transform: translateY(-2px);
+}
+
+.o2t-round:active:not(:disabled) {
+  transform: scale(0.94);
 }
 
 .o2t-round:disabled {
@@ -327,8 +580,8 @@ input {
 }
 
 .o2t-round[data-off="true"] {
-  background: #3a1f22;
-  color: #ff8b8f;
+  background: rgb(242 85 90 / 0.16);
+  color: #ff9599;
 }
 
 .o2t-round[data-active="true"] {
@@ -341,27 +594,37 @@ input {
   color: #fff;
 }
 
+.o2t-round.o2t-danger:hover:not(:disabled) {
+  background: #ff6a6f;
+}
+
 .o2t-tooltip {
   position: absolute;
-  bottom: 56px;
-  padding: 4px 8px;
-  border-radius: 6px;
-  background: var(--o2t-surface-2);
+  bottom: 58px;
+  padding: 5px 9px;
+  border-radius: 8px;
+  background: var(--o2t-surface-solid);
+  border: 1px solid var(--o2t-border);
   font-size: 0.75rem;
   white-space: nowrap;
+  animation: o2t-pop var(--o2t-dur-pop) var(--o2t-ease-out) both;
 }
 
 .o2t-banner {
   align-self: center;
-  padding: 6px 14px;
+  padding: 7px 14px;
   border-radius: 999px;
-  background: var(--o2t-surface-2);
+  background: var(--o2t-panel-bg);
+  backdrop-filter: var(--o2t-blur);
+  -webkit-backdrop-filter: var(--o2t-blur);
   border: 1px solid var(--o2t-border);
   font-size: 0.85rem;
+  animation: o2t-enter var(--o2t-dur-pop) var(--o2t-ease-out) both;
+  --o2t-rise: -8px;
 }
 
 .o2t-banner-warn {
-  border-color: var(--o2t-warn);
+  border-color: rgb(245 165 36 / 0.5);
   color: var(--o2t-warn);
   cursor: pointer;
   text-align: center;
@@ -371,12 +634,13 @@ input {
 .o2t-waiting {
   position: absolute;
   left: 50%;
-  bottom: 84px;
+  bottom: 92px;
   transform: translateX(-50%);
   color: var(--o2t-muted);
   font-size: 0.85rem;
   text-align: center;
   width: calc(100% - 32px);
+  animation: o2t-fade var(--o2t-dur-enter) var(--o2t-ease-out) 300ms both;
 }
 
 /* ------------------------------------------------------------------ picker */
@@ -385,10 +649,17 @@ input {
   position: fixed;
   inset: 0;
   z-index: 50;
-  background: rgb(0 0 0 / 0.6);
+  background: rgb(2 6 23 / 0.65);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
   display: grid;
   place-items: center;
   padding: 16px;
+  animation: o2t-fade var(--o2t-dur-ui) var(--o2t-ease-out) both;
+}
+
+.o2t-modal > .o2t-card {
+  animation: o2t-pop var(--o2t-dur-pop) var(--o2t-ease-out) both;
 }
 
 .o2t-picker {
@@ -424,7 +695,7 @@ input {
   padding: 6px 8px;
   border-radius: 8px;
   border: 1px solid var(--o2t-border);
-  background: var(--o2t-surface-2);
+  background: var(--o2t-field);
   color: inherit;
 }
 
@@ -439,15 +710,19 @@ input {
   flex-direction: column;
   gap: 6px;
   padding: 8px;
-  border-radius: 10px;
+  border-radius: var(--o2t-radius-sm);
   border: 1px solid var(--o2t-border);
   background: var(--o2t-surface-2);
   cursor: pointer;
   text-align: left;
+  transition:
+    transform var(--o2t-dur-micro) var(--o2t-ease-out),
+    border-color var(--o2t-dur-ui) var(--o2t-ease-out);
 }
 
 .o2t-picker-item:hover {
   border-color: var(--o2t-accent);
+  transform: translateY(-2px);
 }
 
 .o2t-picker-item img {
@@ -455,7 +730,7 @@ input {
   aspect-ratio: 16 / 10;
   object-fit: contain;
   background: #000;
-  border-radius: 6px;
+  border-radius: 8px;
 }
 
 .o2t-picker-item span {
@@ -499,6 +774,7 @@ input {
   width: auto;
   height: auto;
   aspect-ratio: auto;
+  animation: o2t-fade var(--o2t-dur-ui) var(--o2t-ease-out) both;
 }
 
 .o2t-tile-expand {
@@ -509,11 +785,13 @@ input {
   place-items: center;
   width: 32px;
   height: 32px;
-  border-radius: 8px;
-  background: rgb(0 0 0 / 0.55);
+  border-radius: 10px;
+  background: rgb(2 6 23 / 0.55);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
   color: #fff;
   opacity: 0;
-  transition: opacity 160ms ease;
+  transition: opacity var(--o2t-dur-ui) var(--o2t-ease-out);
   pointer-events: none;
 }
 
@@ -535,12 +813,6 @@ input {
   }
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .o2t-tile-expand {
-    transition: none;
-  }
-}
-
 /* ------------------------------------------------------------------ speaking indicator */
 
 /* Drawn inside the tile so it never shifts the layout. */
@@ -549,20 +821,16 @@ input {
   position: absolute;
   inset: 0;
   border-radius: inherit;
-  box-shadow: inset 0 0 0 3px var(--o2t-speaking, #46a758);
+  box-shadow:
+    inset 0 0 0 2px var(--o2t-speaking, var(--o2t-ok)),
+    inset 0 0 24px rgb(74 222 128 / 0.25);
   opacity: 0;
-  transition: opacity 160ms ease;
+  transition: opacity var(--o2t-dur-ui) var(--o2t-ease-out);
   pointer-events: none;
 }
 
 .o2t-tile-speaking::after {
   opacity: 1;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .o2t-tile::after {
-    transition: none;
-  }
 }
 
 /* ------------------------------------------------------------------ camera + quality menus */
@@ -573,33 +841,44 @@ input {
 
 .o2t-menu {
   position: absolute;
-  bottom: 58px;
+  bottom: 60px;
   left: 50%;
   transform: translateX(-50%);
+  transform-origin: bottom center;
   min-width: 220px;
   max-width: min(320px, calc(100vw - 32px));
   padding: 6px;
-  border-radius: 12px;
-  background: var(--o2t-surface);
+  border-radius: 14px;
+  background: var(--o2t-panel-bg);
+  background-color: var(--o2t-surface-solid);
   border: 1px solid var(--o2t-border);
-  box-shadow: 0 8px 24px rgb(0 0 0 / 0.4);
+  box-shadow: 0 16px 40px rgb(2 6 23 / 0.6);
   display: flex;
   flex-direction: column;
   gap: 2px;
   z-index: 20;
+  animation: o2t-menu-in var(--o2t-dur-pop) var(--o2t-ease-out) both;
+}
+
+@keyframes o2t-menu-in {
+  from {
+    opacity: 0;
+    transform: translateX(-50%) translateY(6px) scale(0.97);
+  }
 }
 
 .o2t-menu-item {
   text-align: left;
   padding: 9px 12px;
   border: none;
-  border-radius: 8px;
+  border-radius: 9px;
   background: transparent;
   cursor: pointer;
   font-size: 0.875rem;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  transition: background-color var(--o2t-dur-micro) var(--o2t-ease-out);
 }
 
 .o2t-menu-item:hover,
@@ -622,20 +901,34 @@ input {
   height: 22px;
   padding: 0;
   border-radius: 50%;
-  border: 2px solid var(--o2t-surface);
+  border: 2px solid var(--o2t-surface-solid);
   background: var(--o2t-surface-2);
   color: inherit;
   display: grid;
   place-items: center;
   cursor: pointer;
+  transition: transform var(--o2t-dur-micro) var(--o2t-ease-out);
 }
 
 .o2t-round-badge:hover,
 .o2t-round-badge:focus-visible {
-  filter: brightness(1.3);
+  transform: scale(1.1);
 }
 
 .o2t-menu-item[aria-checked="true"]::before {
   content: "✓ ";
   color: var(--o2t-accent);
+}
+
+/* ------------------------------------------------------------------ reduced motion */
+
+/* Content appears in its final state immediately; only colour/opacity feedback remains. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 1ms !important;
+    animation-delay: 0ms !important;
+    transition-duration: 1ms !important;
+  }
 }

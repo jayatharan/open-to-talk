@@ -10,13 +10,13 @@ const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || "https://open2talk.cosmerg.c
 
 export const metadata: Metadata = {
   metadataBase: new URL(siteUrl),
-  title: "open2talk: password-gated video calls",
+  title: "open2talk: private video calls",
   description:
-    "Open-source video calls with screen and audio sharing. No accounts, no database: a link plus a room name and password. Web, desktop, Android and iOS.",
+    "Open-source video calls with screen and audio sharing. No accounts, no database: join with a link, or with a room name and password. Web, desktop, Android and iOS.",
   referrer: "no-referrer",
   openGraph: {
     title: "open2talk",
-    description: "Video calls that only open with the password. No accounts, no database.",
+    description: "Private video calls: send a link, or just a password. No accounts, no database.",
     url: siteUrl,
     siteName: "open2talk",
     type: "website",

@@ -1,6 +1,8 @@
 import { LOCAL_SPEAKER, roomUrl, type RemotePeer, type RoomSecret } from "@open2talk/core";
 import { SymbolView, type SymbolViewProps } from "expo-symbols";
 import { useEffect, useRef, useState } from "react";
+import Animated, { useAnimatedStyle, useSharedValue, withTiming } from "react-native-reanimated";
+import { Enter } from "./motion";
 import { ActivityIndicator, BackHandler, Modal, Platform, Pressable, Share, StyleSheet, Text, useWindowDimensions, View } from "react-native";
 import { StatusBar } from "expo-status-bar";
 import { RTCView, ScreenCapturePickerView } from "react-native-webrtc";
@@ -8,10 +10,36 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { useSettings } from "@/lib/settings";
 import { useCall } from "@/lib/useCall";
 import { ScreenQualityPicker } from "./ScreenQualityPicker";
-import { colors, ui } from "@/lib/theme";
+import { colors, motion, ui } from "@/lib/theme";
 import { Button } from "./form";
 
 type Icon = SymbolViewProps["name"];
+
+const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
+
+/**
+ * A camera can be "on" before frames arrive, or stall; react-native-webrtc marks such remote
+ * tracks muted. Show the avatar instead of a black rectangle until the track is live.
+ */
+function useTrackLive(stream: MediaStream | null): boolean {
+  const track = stream?.getVideoTracks()[0] as (MediaStreamTrack & { muted?: boolean }) | undefined;
+  // Remember which track the last event was for, so a new track starts from its own state.
+  const [seen, setSeen] = useState<{ track: MediaStreamTrack | undefined; live: boolean } | null>(null);
+  useEffect(() => {
+    if (!track) return;
+    const update = () => setSeen({ track, live: !track.muted && track.readyState === "live" });
+    track.addEventListener("mute", update);
+    track.addEventListener("unmute", update);
+    track.addEventListener("ended", update);
+    return () => {
+      track.removeEventListener("mute", update);
+      track.removeEventListener("unmute", update);
+      track.removeEventListener("ended", update);
+    };
+  }, [track]);
+  if (!track) return false;
+  return seen?.track === track ? seen.live : !track.muted && track.readyState === "live";
+}
 const icons = {
   mic: { ios: "mic.fill", android: "mic" },
   micOff: { ios: "mic.slash.fill", android: "mic_off" },
@@ -56,7 +84,8 @@ function Tile({
   speaking?: boolean;
 }) {
   const url = (stream as unknown as { toURL?: () => string } | null)?.toURL?.();
-  const hasVideo = showVideo && !!url && !!stream?.getVideoTracks().length;
+  const live = useTrackLive(stream);
+  const hasVideo = showVideo && !!url && !!stream?.getVideoTracks().length && live;
   return (
     <Pressable
       style={[styles.tile, fullscreen && styles.tileFullscreen, style]}
@@ -69,12 +98,12 @@ function Tile({
       {hasVideo ? (
         <RTCView streamURL={url} style={StyleSheet.absoluteFill} objectFit={contain ? "contain" : "cover"} mirror={mirror} zOrder={zOrder} />
       ) : (
-        <View style={styles.avatar}>
+        <Enter rise={0} duration={motion.ui} style={styles.avatar}>
           <Text style={styles.avatarText}>{name.slice(0, 1).toUpperCase() || "?"}</Text>
-        </View>
+        </Enter>
       )}
       {/* Drawn on top as an inset border so the tile's size never changes. */}
-      {speaking && <View style={styles.speaking} pointerEvents="none" />}
+      {speaking && <Enter rise={0} duration={motion.ui} style={styles.speaking} pointerEvents="none" />}
       {onPress && (
         <View style={styles.expand} pointerEvents="none">
           <SymbolView name={fullscreen ? icons.collapse : icons.expand} size={14} tintColor="#fff" />
@@ -118,25 +147,33 @@ function Control({
   danger?: boolean;
   label: string;
 }) {
+  const scale = useSharedValue(1);
+  const pressStyle = useAnimatedStyle(() => ({ transform: [{ scale: scale.get() }] }));
   return (
-    <Pressable
+    <AnimatedPressable
       accessibilityLabel={label}
       accessibilityHint={hint}
       onPress={onPress}
       onLongPress={onLongPress}
+      onPressIn={() => scale.set(withTiming(0.92, { duration: motion.micro, easing: motion.easeOut }))}
+      onPressOut={() => scale.set(withTiming(1, { duration: motion.ui, easing: motion.easeOut }))}
       disabled={disabled || busy}
       accessibilityState={{ disabled: disabled || busy, busy }}
-      style={({ pressed }) => [
+      style={[
         styles.control,
-        off && { backgroundColor: "#3a1f22" },
+        off && { backgroundColor: "rgba(242,85,90,0.18)" },
         active && { backgroundColor: colors.accent },
         danger && { backgroundColor: colors.danger },
-        pressed && { opacity: 0.7 },
         (disabled || busy) && { opacity: 0.5 },
+        pressStyle,
       ]}
     >
-      {busy ? <ActivityIndicator color={colors.text} /> : <SymbolView name={icon} size={22} tintColor={off ? "#ff8b8f" : colors.text} />}
-    </Pressable>
+      {busy ? (
+        <ActivityIndicator color={colors.text} />
+      ) : (
+        <SymbolView name={icon} size={22} tintColor={off ? "#ff9599" : active ? colors.accentText : colors.text} />
+      )}
+    </AnimatedPressable>
   );
 }
 
@@ -258,9 +295,15 @@ export function CallScreen({
   return (
     <SafeAreaView style={ui.screen} edges={["top", "bottom", "left", "right"]}>
       {call.status !== "open" && (
-        <Text style={styles.banner}>{call.status === "reconnecting" ? "Reconnecting…" : "Connecting…"}</Text>
+        <Enter rise={-8} duration={motion.pop}>
+          <Text style={styles.banner}>{call.status === "reconnecting" ? "Reconnecting…" : "Connecting…"}</Text>
+        </Enter>
       )}
-      {call.finishingShare && <Text style={styles.banner}>Finishing previous share…</Text>}
+      {call.finishingShare && (
+        <Enter rise={-8} duration={motion.pop}>
+          <Text style={styles.banner}>Finishing previous share…</Text>
+        </Enter>
+      )}
       {call.warning && (
         <Pressable onPress={call.dismissWarning}>
           <Text style={[styles.banner, { color: colors.warn, borderColor: colors.warn }]}>{call.warning}</Text>
@@ -288,18 +331,20 @@ export function CallScreen({
         </View>
       ) : (
         <View style={styles.grid}>
-          {tiles.map((t) => (
-            <View key={t.key} style={gridTile}>
+          {tiles.map((t, i) => (
+            <Enter key={t.key} style={gridTile} delay={i * motion.stagger} rise={0} scale={0.96}>
               {t.render({ flex: 1 })}
-            </View>
+            </Enter>
           ))}
         </View>
       )}
 
       {call.peers.length === 0 && call.status === "open" && (
-        <Text style={[ui.muted, { textAlign: "center", paddingHorizontal: 16 }]}>
-          Waiting for others. Share the link, room name and password.
-        </Text>
+        <Enter rise={0} delay={300}>
+          <Text style={[ui.muted, { textAlign: "center", paddingHorizontal: 16 }]}>
+            Waiting for others. Share the link, or the room name and password.
+          </Text>
+        </Enter>
       )}
 
       {Platform.OS === "ios" && (
@@ -324,7 +369,7 @@ export function CallScreen({
         </Pressable>
       </Modal>
 
-      <View style={styles.controls}>
+      <Enter delay={120} rise={16} style={styles.controls}>
         <Control label={call.micOn ? "Mute" : "Unmute"} icon={call.micOn ? icons.mic : icons.micOff} off={!call.micOn} onPress={call.toggleMic} />
         <Control label={call.camOn ? "Camera off" : "Camera on"} icon={call.camOn ? icons.cam : icons.camOff} off={!call.camOn} onPress={call.toggleCam} />
         <Control label="Switch camera" icon={icons.flip} onPress={() => void call.flipCamera()} />
@@ -337,7 +382,7 @@ export function CallScreen({
           onPress={() => void call.toggleScreen(screenPicker.current)}
           onLongPress={() => setQualitySheet(true)}
         />
-        <Control label="Share invite link" icon={icons.share} onPress={() => void Share.share({ message: roomUrl(host, slug) })} />
+        <Control label="Share invite link" icon={icons.share} onPress={() => void Share.share({ message: roomUrl(host, slug, secret.linkKey) })} />
         <Control
           label="Leave call"
           icon={icons.leave}
@@ -347,7 +392,7 @@ export function CallScreen({
             onLeave();
           }}
         />
-      </View>
+      </Enter>
     </SafeAreaView>
   );
 }
@@ -359,7 +404,17 @@ const styles = StyleSheet.create({
   sheet: { gap: 12 },
   grid: { flex: 1, flexDirection: "row", flexWrap: "wrap", padding: 4 },
   fullscreen: { flex: 1, backgroundColor: "#000" },
-  speaking: { position: "absolute", top: 0, left: 0, right: 0, bottom: 0, borderRadius: 14, borderWidth: 3, borderColor: colors.ok },
+  speaking: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    borderRadius: 20,
+    borderWidth: 2,
+    borderColor: colors.ok,
+    boxShadow: "inset 0 0 24px rgba(74,222,128,0.25)",
+  },
   tileFullscreen: { borderRadius: 0, borderWidth: 0, backgroundColor: "#000" },
   expand: {
     position: "absolute",
@@ -367,22 +422,32 @@ const styles = StyleSheet.create({
     right: 8,
     width: 28,
     height: 28,
-    borderRadius: 7,
-    backgroundColor: "rgba(0,0,0,0.55)",
+    borderRadius: 9,
+    backgroundColor: "rgba(2,6,23,0.6)",
     alignItems: "center",
     justifyContent: "center",
   },
   tile: {
     flex: 1,
-    backgroundColor: colors.surface,
-    borderRadius: 14,
+    backgroundColor: colors.surfaceSolid,
+    experimental_backgroundImage: "radial-gradient(circle at 50% 0%, rgba(96,165,250,0.1), transparent 70%)",
+    borderRadius: 20,
     overflow: "hidden",
     borderColor: colors.border,
     borderWidth: StyleSheet.hairlineWidth,
     justifyContent: "center",
     alignItems: "center",
   },
-  avatar: { width: 64, height: 64, borderRadius: 32, backgroundColor: colors.surface2, alignItems: "center", justifyContent: "center" },
+  avatar: {
+    width: 68,
+    height: 68,
+    borderRadius: 34,
+    experimental_backgroundImage: "linear-gradient(160deg, rgba(96,165,250,0.32), rgba(139,92,246,0.26))",
+    borderWidth: 1,
+    borderColor: "rgba(148,163,184,0.2)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
   avatarText: { color: colors.text, fontSize: 26, fontWeight: "600" },
   label: {
     position: "absolute",
@@ -397,10 +462,10 @@ const styles = StyleSheet.create({
   labelText: {
     color: colors.text,
     fontSize: 12,
-    backgroundColor: "rgba(0,0,0,0.55)",
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 6,
+    backgroundColor: "rgba(2,6,23,0.6)",
+    paddingHorizontal: 9,
+    paddingVertical: 4,
+    borderRadius: 9,
     overflow: "hidden",
   },
   banner: {
@@ -408,10 +473,10 @@ const styles = StyleSheet.create({
     color: colors.text,
     borderColor: colors.border,
     borderWidth: StyleSheet.hairlineWidth,
-    backgroundColor: colors.surface2,
-    borderRadius: 12,
-    paddingHorizontal: 12,
-    paddingVertical: 6,
+    backgroundColor: colors.surface,
+    borderRadius: 999,
+    paddingHorizontal: 14,
+    paddingVertical: 7,
     marginVertical: 6,
     marginHorizontal: 16,
     fontSize: 13,
@@ -422,9 +487,17 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     justifyContent: "center",
     flexWrap: "wrap",
+    alignSelf: "center",
     gap: 10,
-    paddingVertical: 12,
-    paddingHorizontal: 8,
+    padding: 8,
+    marginVertical: 10,
+    marginHorizontal: 8,
+    borderRadius: 34,
+    backgroundColor: colors.surface,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.border,
+    borderTopColor: "rgba(148,163,184,0.34)",
+    boxShadow: "0 18px 40px rgba(2,6,23,0.55)",
   },
   control: {
     width: 50,
