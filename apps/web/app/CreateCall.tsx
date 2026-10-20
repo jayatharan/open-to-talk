@@ -1,11 +1,11 @@
 "use client";
 
 import { roomUrl, type RoomSecret } from "@open2talk/core";
-import { CreateRoomForm, JoinRoomForm, rememberSecret, ShareLink } from "@open2talk/call-react";
+import { HomePanel, rememberSecret, ShareLink } from "@open2talk/call-react";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 
-/** The real create-call flow: it derives the room key on this device and produces a working link. */
+/** The real create/join flow: keys are derived on this device and links work immediately. */
 export function CreateCall() {
   const router = useRouter();
   const [created, setCreated] = useState<{ slug: string; secret: RoomSecret } | null>(null);
@@ -23,18 +23,12 @@ export function CreateCall() {
       />
     );
   }
-  return <CreateRoomForm host="" onCreated={({ slug, secret }) => setCreated({ slug, secret })} />;
-}
-
-/** Join without a link: the room name + password locate the room on their own. */
-export function JoinByName() {
-  const router = useRouter();
   return (
-    <JoinRoomForm
-      onUnlocked={({ slug, secret }) => {
-        rememberSecret(slug, secret);
-        router.push(`/r/${slug}`);
-      }}
+    <HomePanel
+      host=""
+      onCreated={({ slug, secret }) => setCreated({ slug, secret })}
+      onJoined={({ slug, secret }) => enter(slug, secret)}
+      onLink={({ slug, linkKey }) => router.push(`/r/${slug}${linkKey ? `#k=${linkKey}` : ""}`)}
     />
   );
 }

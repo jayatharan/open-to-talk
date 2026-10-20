@@ -1,4 +1,4 @@
-import { CreateCall, JoinByName } from "./CreateCall";
+import { CreateCall } from "./CreateCall";
 
 const REPO = "https://github.com/jayatharan/open-to-talk";
 const RELEASES = `${REPO}/releases/latest`;
@@ -7,7 +7,7 @@ const steps = [
   {
     state: "01 · Create",
     title: "The key is made on your device",
-    body: "Your room name and password go through PBKDF2 (310,000 rounds) with a random salt. That produces an encryption key, which never leaves the device, and a public room id.",
+    body: "Your room name and password go through PBKDF2 (310,000 rounds), salted with a hash of the room name. That produces an encryption key, which never leaves the device, and a public room id.",
   },
   {
     state: "02 · Share",
@@ -133,9 +133,6 @@ export default function LandingPage() {
             </p>
             <div className="lp-stage-card">
               <CreateCall />
-            </div>
-            <div className="lp-stage-card">
-              <JoinByName />
             </div>
           </div>
         </section>

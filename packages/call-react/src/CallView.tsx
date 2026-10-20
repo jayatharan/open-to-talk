@@ -45,11 +45,38 @@ function VideoTile({
   const [expanded, setExpanded] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
 
+  // A camera can be "on" before any frame arrives (or while a peer's track is stalled); show the
+  // avatar until the video element actually has a picture, instead of a black rectangle.
+  const [hasFrames, setHasFrames] = useState(false);
+
   useEffect(() => {
     const el = ref.current;
     if (!el) return;
     if (el.srcObject !== stream) el.srcObject = stream;
     if (stream) el.play().catch(() => undefined);
+    // The stream object can stay the same while its video track is added or replaced later.
+    let track: MediaStreamTrack | undefined;
+    const trackEvents = ["mute", "unmute", "ended"] as const;
+    const update = () => {
+      const next = stream?.getVideoTracks()[0];
+      if (next !== track) {
+        for (const e of trackEvents) track?.removeEventListener(e, update);
+        track = next;
+        for (const e of trackEvents) track?.addEventListener(e, update);
+      }
+      setHasFrames(el.videoWidth > 0 && !!track && !track.muted && track.readyState === "live");
+    };
+    update();
+    const videoEvents = ["loadeddata", "resize", "playing", "emptied"] as const;
+    for (const e of videoEvents) el.addEventListener(e, update);
+    stream?.addEventListener("addtrack", update);
+    stream?.addEventListener("removetrack", update);
+    return () => {
+      for (const e of videoEvents) el.removeEventListener(e, update);
+      for (const e of trackEvents) track?.removeEventListener(e, update);
+      stream?.removeEventListener("addtrack", update);
+      stream?.removeEventListener("removetrack", update);
+    };
   }, [stream]);
 
   useEffect(() => {
@@ -89,7 +116,7 @@ function VideoTile({
     tile.requestFullscreen?.().catch(() => undefined);
   }
 
-  const hasVideo = showVideo && !!stream?.getVideoTracks().length;
+  const hasVideo = showVideo && !!stream?.getVideoTracks().length && hasFrames;
   const large = isFullscreen || expanded;
   return (
     <div

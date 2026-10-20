@@ -1,7 +1,185 @@
-import { createRoom, openRoom, passwordStrength, roomNameInUse, unlockRoom, type RoomSecret } from "@open2talk/core";
-import { useEffect, useState, type FormEvent } from "react";
+import {
+  createRoom,
+  openRoom,
+  parseRoomLink,
+  passwordStrength,
+  roomNameInUse,
+  unlockRoom,
+  type RoomLink,
+  type RoomSecret,
+} from "@open2talk/core";
+import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent, type ReactNode } from "react";
 import { LockIcon } from "./icons";
 import { loadDisplayName, saveDisplayName } from "./secretCache";
+
+type RoomResult = { slug: string; secret: RoomSecret; displayName: string };
+
+export interface HomePanelProps {
+  /** Server origin used to check the name isn't already taken. Empty string means same origin (web). */
+  host: string;
+  onCreated: (result: RoomResult) => void;
+  /** Joined with room name + password (no link). */
+  onJoined: (result: RoomResult) => void;
+  /** A pasted call link; with a key it joins directly, without one it asks for name + password. */
+  onLink: (link: RoomLink) => void;
+  /** Extra guidance under the link field, e.g. "this link is for another server". */
+  linkHint?: (link: string) => ReactNode;
+}
+
+const TABS = [
+  { id: "create", label: "New call" },
+  { id: "join", label: "Join" },
+] as const;
+
+/** One panel for both ways into a call, so the home screen has a single clear primary action. */
+export function HomePanel({ host, onCreated, onJoined, onLink, linkHint }: HomePanelProps) {
+  const [tab, setTab] = useState<(typeof TABS)[number]["id"]>("create");
+  const [room, setRoom] = useState("");
+  const [password, setPassword] = useState("");
+  const [link, setLink] = useState("");
+  const [displayName, setDisplayName] = useState("");
+  useEffect(() => setDisplayName((n) => n || loadDisplayName()), []);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const tabRefs = useRef<(HTMLButtonElement | null)[]>([]);
+  const strength = passwordStrength(password);
+  const usingLink = tab === "join" && link.trim().length > 0;
+  const name = displayName.trim();
+
+  function select(id: typeof tab) {
+    setTab(id);
+    setError(null);
+  }
+
+  function onTabKey(e: KeyboardEvent, i: number) {
+    if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
+    e.preventDefault();
+    const next = (i + (e.key === "ArrowRight" ? 1 : TABS.length - 1)) % TABS.length;
+    select(TABS[next]!.id);
+    tabRefs.current[next]?.focus();
+  }
+
+  async function submit(e: FormEvent) {
+    e.preventDefault();
+    setError(null);
+    if (usingLink) {
+      const parsed = parseRoomLink(link);
+      if (!parsed) {
+        setError("That doesn't look like an open2talk call link.");
+        return;
+      }
+      if (name) saveDisplayName(name);
+      onLink(parsed);
+      return;
+    }
+    if (!room.trim() || !password || !name) return;
+    if (tab === "create" && !strength.ok) return;
+    setBusy(true);
+    try {
+      const { slug, ...secret } = await (tab === "create" ? createRoom : openRoom)(room, password);
+      if (tab === "create" && (await roomNameInUse(host, secret.salt))) {
+        setError(`A call named “${room.trim()}” is already in progress. Pick another name, or join it with its password.`);
+        return;
+      }
+      saveDisplayName(name);
+      (tab === "create" ? onCreated : onJoined)({ slug, secret, displayName: name });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Something went wrong");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const tabIndex = TABS.findIndex((t) => t.id === tab);
+  const canSubmit = usingLink || (!!room.trim() && !!password && !!name && (tab === "join" || strength.ok));
+
+  return (
+    <form className="o2t-card o2t-form o2t-home" onSubmit={submit} noValidate>
+      <div className="o2t-tabs" role="tablist" aria-label="Start or join a call" style={{ ["--o2t-tab" as string]: tabIndex }}>
+        <span className="o2t-tab-indicator" aria-hidden="true" />
+        {TABS.map((t, i) => (
+          <button
+            key={t.id}
+            ref={(el) => {
+              tabRefs.current[i] = el;
+            }}
+            type="button"
+            role="tab"
+            id={`o2t-tab-${t.id}`}
+            aria-selected={tab === t.id}
+            aria-controls="o2t-home-panel"
+            tabIndex={tab === t.id ? 0 : -1}
+            className="o2t-tab"
+            onClick={() => select(t.id)}
+            onKeyDown={(e) => onTabKey(e, i)}
+          >
+            {t.label}
+          </button>
+        ))}
+      </div>
+
+      <div key={tab} id="o2t-home-panel" role="tabpanel" aria-labelledby={`o2t-tab-${tab}`} className="o2t-tabpanel">
+        {tab === "create" ? (
+          <p className="o2t-muted">
+            Pick a room name and password. Anyone with the link joins directly; others can join with the name and
+            password.
+          </p>
+        ) : (
+          <>
+            <label>
+              Call link
+              <input
+                value={link}
+                onChange={(e) => setLink(e.target.value)}
+                placeholder="https://…/r/…"
+                inputMode="url"
+                autoComplete="off"
+              />
+            </label>
+            {link.trim() && linkHint?.(link)}
+            <div className="o2t-or">or room name and password</div>
+          </>
+        )}
+
+        <label style={{ opacity: usingLink ? 0.45 : 1 }}>
+          Room name
+          <input
+            value={room}
+            onChange={(e) => setRoom(e.target.value)}
+            placeholder={tab === "create" ? "Weekly sync" : undefined}
+            disabled={usingLink}
+          />
+        </label>
+        <label style={{ opacity: usingLink ? 0.45 : 1 }}>
+          Password
+          <input
+            type="password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            placeholder={tab === "create" ? "At least 8 characters" : undefined}
+            autoComplete={tab === "create" ? "new-password" : "current-password"}
+            disabled={usingLink}
+          />
+          {tab === "create" && password && (
+            <span className="o2t-strength" data-score={strength.score}>
+              <span className="o2t-strength-bar" />
+              {strength.hint}
+            </span>
+          )}
+        </label>
+        <label>
+          Your name
+          <input value={displayName} onChange={(e) => setDisplayName(e.target.value)} placeholder="Alex" maxLength={40} />
+        </label>
+      </div>
+
+      {error && <p className="o2t-error" role="alert">{error}</p>}
+      <button className="o2t-btn o2t-primary" disabled={busy || !canSubmit}>
+        {busy ? (tab === "create" ? "Securing room…" : "Checking…") : tab === "create" ? "Create call" : "Join call"}
+      </button>
+    </form>
+  );
+}
 
 export interface CreateRoomFormProps {
   /** Server origin used to check the name isn't already taken. Empty string means same origin (web). */

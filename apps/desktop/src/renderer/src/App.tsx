@@ -1,7 +1,7 @@
 import {
   CallView,
-  CreateRoomForm,
   DirectJoinForm,
+  HomePanel,
   JoinRoomForm,
   ScreenSourcePicker,
   ShareLink,
@@ -121,12 +121,22 @@ export function App() {
         )}
         {screen.name === "home" && (
           <>
-            <CreateRoomForm host={host} onCreated={(r) => setScreen({ name: "share", ...r })} />
-            <JoinByLink host={host} onLink={(link) => void openRoomLink(link)} onUseHost={async (h) => {
-              await api.setSettings({ host: h });
-              setHost(h);
-            }} />
-            <JoinRoomForm onUnlocked={(r) => setScreen({ name: "call", ...r })} />
+            <HomePanel
+              host={host}
+              onCreated={(r) => setScreen({ name: "share", ...r })}
+              onJoined={(r) => setScreen({ name: "call", ...r })}
+              onLink={(link) => void openRoomLink(link)}
+              linkHint={(link) => (
+                <OtherHostHint
+                  host={host}
+                  link={link}
+                  onUseHost={async (h) => {
+                    await api.setSettings({ host: h });
+                    setHost(h);
+                  }}
+                />
+              )}
+            />
           </>
         )}
         {screen.name === "share" && (
@@ -211,48 +221,16 @@ function SettingsForm({
   );
 }
 
-function JoinByLink({
-  host,
-  onLink,
-  onUseHost,
-}: {
-  host: string;
-  onLink: (link: RoomLink) => void;
-  onUseHost: (host: string) => Promise<void>;
-}) {
-  const [link, setLink] = useState("");
-  const [error, setError] = useState<string | null>(null);
+/** A pasted link can point at a different server than the one this app is set to. */
+function OtherHostHint({ host, link, onUseHost }: { host: string; link: string; onUseHost: (host: string) => Promise<void> }) {
   const linkHost = extractHost(link);
-  const otherHost = linkHost && linkHost !== host ? linkHost : null;
-
-  function submit(e: FormEvent) {
-    e.preventDefault();
-    const parsed = parseRoomLink(link);
-    if (!parsed) {
-      setError("That doesn't look like an open2talk call link.");
-      return;
-    }
-    onLink(parsed);
-  }
-
+  if (!linkHost || linkHost === host) return null;
   return (
-    <form className="o2t-card o2t-form" onSubmit={submit}>
-      <h2>Join with a link</h2>
-      <p className="o2t-muted">Paste the call link you received.</p>
-      <label>
-        Call link
-        <input value={link} onChange={(e) => setLink(e.target.value)} placeholder="https://…/r/…" required />
-      </label>
-      {otherHost && (
-        <p className="o2t-muted">
-          This link is for <strong>{otherHost}</strong>, but you're using {host || "no server"}.{" "}
-          <button type="button" className="d-link" onClick={() => void onUseHost(otherHost)}>
-            Switch to {otherHost}
-          </button>
-        </p>
-      )}
-      {error && <p className="o2t-error">{error}</p>}
-      <button className="o2t-btn o2t-primary">Continue</button>
-    </form>
+    <p className="o2t-hint">
+      This link is for <strong>{linkHost}</strong>, but you're using {host || "no server"}.{" "}
+      <button type="button" onClick={() => void onUseHost(linkHost)}>
+        Switch to {linkHost}
+      </button>
+    </p>
   );
 }

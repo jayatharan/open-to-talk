@@ -1,7 +1,7 @@
 import { joinFromLink, parseSlug, unlockRoom, type RoomSecret } from "@open2talk/core";
 import { Redirect, router, useLocalSearchParams } from "expo-router";
 import { useEffect, useState } from "react";
-import { KeyboardAvoidingView, Platform, ScrollView } from "react-native";
+import { KeyboardAvoidingView, ScrollView } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { CallScreen } from "@/components/CallScreen";
 import { Button, Card, ErrorText, Field } from "@/components/form";
@@ -80,8 +80,8 @@ export default function RoomScreen() {
 
   return (
     <SafeAreaView style={ui.screen}>
-      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : undefined}>
-        <ScrollView contentContainerStyle={ui.scroll} keyboardShouldPersistTaps="handled">
+      <KeyboardAvoidingView style={{ flex: 1 }}>
+        <ScrollView contentContainerStyle={ui.scroll} keyboardShouldPersistTaps="handled" automaticallyAdjustKeyboardInsets>
           {invite ? (
             <Card title="Join call" subtitle="You were invited with a direct link. Choose the name others will see.">
               <Field label="Your name" value={name} onChangeText={setName} placeholder="Alex" autoFocus autoCapitalize="words" maxLength={40} />

@@ -1,7 +1,7 @@
 import { checkHost, normalizeHost } from "@open2talk/core";
 import { router } from "expo-router";
 import { useEffect, useState } from "react";
-import { KeyboardAvoidingView, Platform, ScrollView, Text } from "react-native";
+import { KeyboardAvoidingView, ScrollView, Text } from "react-native";
 import { Button, Card, ErrorText, Field } from "@/components/form";
 import { ScreenQualityPicker } from "@/components/ScreenQualityPicker";
 import { useSettings } from "@/lib/settings";
@@ -33,8 +33,8 @@ export default function SettingsScreen() {
   }
 
   return (
-    <KeyboardAvoidingView style={ui.screen} behavior={Platform.OS === "ios" ? "padding" : undefined}>
-      <ScrollView contentContainerStyle={ui.scroll} keyboardShouldPersistTaps="handled">
+    <KeyboardAvoidingView style={ui.screen}>
+      <ScrollView contentContainerStyle={ui.scroll} keyboardShouldPersistTaps="handled" automaticallyAdjustKeyboardInsets>
         <Card
           title={host ? "Server" : "Welcome to open2talk"}
           subtitle="Enter the address of the open2talk server to use. Anyone can self-host one; it stores nothing."

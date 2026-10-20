@@ -2,23 +2,30 @@ import { createRoom, extractHost, openRoom, parseRoomLink, passwordStrength, roo
 import * as Clipboard from "expo-clipboard";
 import { Link, Redirect, router, Stack } from "expo-router";
 import { useEffect, useState } from "react";
-import { KeyboardAvoidingView, Platform, Pressable, ScrollView, Share, Text, View } from "react-native";
-import { Button, Card, ErrorText, Field } from "@/components/form";
+import { Platform, Pressable, ScrollView, Share, Text, View } from "react-native";
+import Animated, { FadeIn } from "react-native-reanimated";
+import { Button, Card, ErrorText, Field, Tabs } from "@/components/form";
 import { rememberSecret, useSettings } from "@/lib/settings";
-import { colors, ui } from "@/lib/theme";
+import { colors, motion, ui } from "@/lib/theme";
 import type { RoomSecret } from "@open2talk/core";
+
+const TABS = [
+  { id: "create", label: "New call" },
+  { id: "join", label: "Join" },
+] as const;
 
 export default function HomeScreen() {
   const { loaded, host, displayName, setDisplayName, setHost } = useSettings();
+  const [tab, setTab] = useState<(typeof TABS)[number]["id"]>("create");
   const [room, setRoom] = useState("");
   const [password, setPassword] = useState("");
+  const [link, setLink] = useState("");
   const [name, setName] = useState(displayName);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [created, setCreated] = useState<{ slug: string; secret: RoomSecret } | null>(null);
-  const [link, setLink] = useState("");
-  const [linkError, setLinkError] = useState<string | null>(null);
   const strength = passwordStrength(password);
+  const usingLink = tab === "join" && link.trim().length > 0;
 
   useEffect(() => {
     if (displayName) setName((n) => n || displayName);
@@ -27,39 +34,52 @@ export default function HomeScreen() {
   if (!loaded) return null;
   if (!host) return <Redirect href="/settings" />;
 
-  async function create() {
-    setBusy(true);
+  function selectTab(id: typeof tab) {
+    setTab(id);
     setError(null);
+  }
+
+  async function submit() {
+    setError(null);
+    if (usingLink) {
+      const parsed = parseRoomLink(link);
+      if (!parsed) {
+        setError("That doesn't look like an open2talk call link.");
+        return;
+      }
+      if (name.trim()) await setDisplayName(name.trim());
+      // Expo Router has no fragments, so the key travels as a route param inside the app.
+      router.push(`/r/${parsed.slug}${parsed.linkKey ? `?k=${parsed.linkKey}` : ""}`);
+      return;
+    }
+    setBusy(true);
     try {
-      const { slug, ...secret } = await createRoom(room, password);
-      if (await roomNameInUse(host, secret.salt)) {
+      const { slug, ...secret } = await (tab === "create" ? createRoom : openRoom)(room, password);
+      if (tab === "create" && (await roomNameInUse(host, secret.salt))) {
         setError(`A call named “${room.trim()}” is already in progress. Pick another name, or join it with its password.`);
         return;
       }
       await setDisplayName(name.trim());
-      setCreated({ slug, secret });
+      if (tab === "create") {
+        setCreated({ slug, secret });
+      } else {
+        rememberSecret(slug, secret);
+        router.push(`/r/${slug}`);
+        setPassword("");
+      }
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Could not create the room");
+      setError(e instanceof Error ? e.message : "Something went wrong");
     } finally {
       setBusy(false);
     }
   }
 
-  function joinLink() {
-    const parsed = parseRoomLink(link);
-    if (!parsed) {
-      setLinkError("That doesn't look like an open2talk call link.");
-      return;
-    }
-    // Expo Router has no fragments, so the key travels as a route param inside the app.
-    router.push(`/r/${parsed.slug}${parsed.linkKey ? `?k=${parsed.linkKey}` : ""}`);
-  }
-
   const linkHost = extractHost(link);
   const url = created ? roomUrl(host, created.slug, created.secret.linkKey) : "";
+  const canSubmit = usingLink || (!!room.trim() && !!password && !!name.trim() && (tab === "join" || strength.ok));
 
   return (
-    <KeyboardAvoidingView style={ui.screen} behavior={Platform.OS === "ios" ? "padding" : undefined}>
+    <View style={ui.screen}>
       <Stack.Screen
         options={{
           headerRight: () => (
@@ -71,9 +91,19 @@ export default function HomeScreen() {
           ),
         }}
       />
-      <ScrollView contentContainerStyle={ui.scroll} keyboardShouldPersistTaps="handled">
+      <ScrollView
+        contentContainerStyle={ui.scroll}
+        keyboardShouldPersistTaps="handled"
+        keyboardDismissMode="interactive"
+        // Keeps the focused field above the keyboard on iOS.
+        automaticallyAdjustKeyboardInsets
+      >
         {created ? (
-          <Card title="Your call is ready" subtitle="Anyone with this link can join directly, so share it only with people you invite. People without the link can join with the room name and password.">
+          <Card
+            key="share"
+            title="Your call is ready"
+            subtitle="Anyone with this link can join directly, so share it only with people you invite. People without the link can join with the room name and password."
+          >
             <Text selectable style={[ui.input, { fontFamily: Platform.select({ ios: "Menlo", default: "monospace" }), fontSize: 12 }]}>
               {url}
             </Text>
@@ -97,71 +127,82 @@ export default function HomeScreen() {
             />
           </Card>
         ) : (
-          <Card title="Create a call" subtitle="Pick a room name and password. Anyone with the link joins directly; others can join with the room name and password.">
-            <Field label="Room name" value={room} onChangeText={setRoom} placeholder="Weekly sync" autoCapitalize="sentences" />
-            <Field label="Password" value={password} onChangeText={setPassword} secureTextEntry placeholder="At least 8 characters" textContentType="newPassword" />
-            {password ? <Text style={[ui.muted, { color: strength.ok ? (strength.score >= 3 ? colors.ok : colors.warn) : colors.danger }]}>{strength.hint}</Text> : null}
-            <Field label="Your name" value={name} onChangeText={setName} placeholder="Alex" autoCapitalize="words" maxLength={40} />
+          <Card key="home">
+            <Tabs options={TABS} value={tab} onChange={selectTab} />
+            <Animated.View key={tab} entering={FadeIn.duration(motion.ui)} style={{ gap: 14 }}>
+              {tab === "create" ? (
+                <Text style={ui.muted}>
+                  Pick a room name and password. Anyone with the link joins directly; others can join with the name and password.
+                </Text>
+              ) : (
+                <>
+                  <Field
+                    label="Call link"
+                    value={link}
+                    onChangeText={(t) => {
+                      setLink(t);
+                      setError(null);
+                    }}
+                    placeholder="https://…/r/…"
+                    keyboardType="url"
+                  />
+                  {linkHost && linkHost !== host ? (
+                    <Text style={ui.muted}>
+                      This link is for {linkHost}, but you’re using {host}.{" "}
+                      <Text style={{ color: colors.accent, fontWeight: "600" }} onPress={() => void setHost(linkHost)}>
+                        Switch server
+                      </Text>
+                    </Text>
+                  ) : null}
+                  <OrDivider />
+                </>
+              )}
+              <Field
+                label="Room name"
+                value={room}
+                onChangeText={setRoom}
+                placeholder={tab === "create" ? "Weekly sync" : undefined}
+                autoCapitalize="sentences"
+                editable={!usingLink}
+              />
+              <Field
+                label="Password"
+                value={password}
+                onChangeText={setPassword}
+                secureTextEntry
+                placeholder={tab === "create" ? "At least 8 characters" : undefined}
+                textContentType={tab === "create" ? "newPassword" : "password"}
+                editable={!usingLink}
+              />
+              {tab === "create" && password ? (
+                <Text style={[ui.muted, { color: strength.ok ? (strength.score >= 3 ? colors.ok : colors.warn) : colors.danger }]}>
+                  {strength.hint}
+                </Text>
+              ) : null}
+              <Field label="Your name" value={name} onChangeText={setName} placeholder="Alex" autoCapitalize="words" maxLength={40} />
+            </Animated.View>
             <ErrorText>{error}</ErrorText>
-            <Button title="Create call" primary busy={busy} disabled={!room.trim() || !strength.ok || !name.trim()} onPress={() => void create()} />
+            <Button
+              title={tab === "create" ? "Create call" : "Join call"}
+              primary
+              busy={busy}
+              disabled={!canSubmit}
+              onPress={() => void submit()}
+            />
           </Card>
         )}
-
-        <Card title="Join with a link" subtitle="Paste the call link you received, or open it directly on this device.">
-          <Field label="Call link" value={link} onChangeText={(t) => { setLink(t); setLinkError(null); }} placeholder="https://…/r/…" keyboardType="url" />
-          {linkHost && linkHost !== host ? (
-            <Text style={ui.muted}>
-              This link is for {linkHost}, but you're using {host}.{" "}
-              <Text style={{ color: colors.accent }} onPress={() => void setHost(linkHost)}>
-                Switch server
-              </Text>
-            </Text>
-          ) : null}
-          <ErrorText>{linkError}</ErrorText>
-          <Button title="Continue" onPress={joinLink} disabled={!link.trim()} />
-        </Card>
-
-        <JoinByNameCard initialName={displayName} onSaveName={setDisplayName} />
       </ScrollView>
-    </KeyboardAvoidingView>
+    </View>
   );
 }
 
-/** Join without a link: the room name + password locate the room on their own. */
-function JoinByNameCard({ initialName, onSaveName }: { initialName: string; onSaveName: (name: string) => Promise<void> }) {
-  const [room, setRoom] = useState("");
-  const [password, setPassword] = useState("");
-  const [name, setName] = useState(initialName);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (initialName) setName((n) => n || initialName);
-  }, [initialName]);
-
-  async function join() {
-    setBusy(true);
-    setError(null);
-    try {
-      const { slug, ...secret } = await openRoom(room, password);
-      await onSaveName(name.trim());
-      rememberSecret(slug, secret);
-      router.push(`/r/${slug}`);
-      setPassword("");
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Could not join the room");
-    } finally {
-      setBusy(false);
-    }
-  }
-
+function OrDivider() {
+  const line = { flex: 1, height: 1, backgroundColor: colors.border };
   return (
-    <Card title="Join with room name" subtitle="No link? Enter the room name and password to join the call.">
-      <Field label="Room name" value={room} onChangeText={setRoom} autoCapitalize="sentences" />
-      <Field label="Password" value={password} onChangeText={setPassword} secureTextEntry textContentType="password" />
-      <Field label="Your name" value={name} onChangeText={setName} placeholder="Alex" autoCapitalize="words" maxLength={40} />
-      <ErrorText>{error}</ErrorText>
-      <Button title="Join" primary busy={busy} disabled={!room.trim() || !password || !name.trim()} onPress={() => void join()} />
-    </Card>
+    <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
+      <View style={line} />
+      <Text style={{ color: colors.muted, fontSize: 11, letterSpacing: 0.8, textTransform: "uppercase" }}>or room name and password</Text>
+      <View style={line} />
+    </View>
   );
 }
