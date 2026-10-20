@@ -140,6 +140,7 @@ export class MeshCall extends Emitter<MeshCallEvents> {
       roomId: opts.secret.roomId,
       peerId: this.peerId,
       role: opts.role,
+      nameTag: opts.secret.salt,
       eventSource: opts.eventSource,
       fetch: opts.fetch,
     });

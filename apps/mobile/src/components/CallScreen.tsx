@@ -298,7 +298,7 @@ export function CallScreen({
 
       {call.peers.length === 0 && call.status === "open" && (
         <Text style={[ui.muted, { textAlign: "center", paddingHorizontal: 16 }]}>
-          Waiting for others. Share the link, room name and password.
+          Waiting for others. Share the link, or the room name and password.
         </Text>
       )}
 
@@ -337,7 +337,7 @@ export function CallScreen({
           onPress={() => void call.toggleScreen(screenPicker.current)}
           onLongPress={() => setQualitySheet(true)}
         />
-        <Control label="Share invite link" icon={icons.share} onPress={() => void Share.share({ message: roomUrl(host, slug) })} />
+        <Control label="Share invite link" icon={icons.share} onPress={() => void Share.share({ message: roomUrl(host, slug, secret.linkKey) })} />
         <Control
           label="Leave call"
           icon={icons.leave}

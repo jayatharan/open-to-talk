@@ -26,6 +26,8 @@ export interface SignalingOptions {
   peerId: string;
   /** Screen-share participants are counted against their own room allowance. */
   role?: PeerRole;
+  /** The room's name-derived salt, so the server can report the name as taken while we're here. */
+  nameTag?: string;
   eventSource?: EventSourceFactory;
   fetch?: typeof fetch;
 }
@@ -61,6 +63,20 @@ export async function checkHost(host: string, fetchImpl: typeof fetch = fetch): 
     return body.app === "open2talk" ? null : "This server is not an open2talk host";
   } catch (e) {
     return e instanceof Error ? e.message : "Could not reach server";
+  }
+}
+
+/**
+ * Whether someone is already in a call with this room name (identified by its name-derived salt).
+ * Treats an unreachable or older server as "not in use", so creating a call never gets stuck.
+ */
+export async function roomNameInUse(host: string, nameTag: string, fetchImpl: typeof fetch = fetch): Promise<boolean> {
+  try {
+    const res = await fetchImpl(`${normalizeHost(host)}/api/names/${encodeURIComponent(nameTag)}`);
+    if (!res.ok) return false;
+    return ((await res.json()) as { inUse?: boolean }).inUse === true;
+  } catch {
+    return false;
   }
 }
 
@@ -102,7 +118,8 @@ export class SignalingClient extends Emitter<SignalingEvents> {
   private open(): void {
     this.emit("status", this.retry === 0 ? "connecting" : "reconnecting");
     const role = this.opts.role === "screen" ? "&role=screen" : "";
-    const es = this.makeEventSource(`${this.base()}/events?peer=${encodeURIComponent(this.opts.peerId)}${role}`);
+    const name = this.opts.nameTag ? `&name=${encodeURIComponent(this.opts.nameTag)}` : "";
+    const es = this.makeEventSource(`${this.base()}/events?peer=${encodeURIComponent(this.opts.peerId)}${role}${name}`);
     this.es = es;
     es.addEventListener("message", (ev) => {
       if (!ev.data) return;

@@ -261,7 +261,7 @@ export function CallView({ host, secret, displayName, shareUrl, onLeave, beforeS
       )}
 
       {call.peers.length === 0 && call.status === "open" && (
-        <div className="o2t-waiting">Waiting for others to join. Share the link, room name and password.</div>
+        <div className="o2t-waiting">Waiting for others to join. Share the link, or the room name and password.</div>
       )}
 
       <div className="o2t-controls">

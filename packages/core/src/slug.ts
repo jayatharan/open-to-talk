@@ -1,9 +1,9 @@
-import { deriveRoom, randomBytes, roomIdsEqual, ROOM_ID_BYTES, SALT_BYTES, type RoomSecret } from "./crypto";
+import { deriveRoom, importLinkKey, roomIdsEqual, roomSalt, ROOM_ID_BYTES, SALT_BYTES, type RoomSecret } from "./crypto";
 import { fromBase64Url, toBase64Url } from "./encoding";
 
 /**
- * A room slug is `<salt>.<roomId>` (both base64url). It carries everything needed to find the
- * room, but nothing that lets you into it: the AES key is only derivable with the name + password.
+ * A room slug is `<salt>.<roomId>` (both base64url). It locates the room but doesn't let you in:
+ * that takes either the name + password, or the key in a direct link's `#k=` fragment.
  */
 export interface ParsedSlug {
   salt: Uint8Array;
@@ -33,15 +33,26 @@ export interface CreatedRoom extends RoomSecret {
   slug: string;
 }
 
-/** Create a brand-new room from a name + password. */
-export async function createRoom(name: string, password: string): Promise<CreatedRoom> {
-  const salt = randomBytes(SALT_BYTES);
+/**
+ * Open the room for a name + password. The salt comes from the name, so the same name + password
+ * always gives the same room: creating a call and joining one without the link are the same thing.
+ */
+export async function openRoom(name: string, password: string): Promise<CreatedRoom> {
+  const salt = await roomSalt(name);
   const secret = await deriveRoom(name, password, salt);
   return { ...secret, slug: `${toBase64Url(salt)}.${secret.roomId}` };
 }
 
+export const createRoom = openRoom;
+
+/** Join straight from a direct link's key. `null` if the slug or key is malformed. */
+export async function joinFromLink(slug: string, linkKey: string): Promise<RoomSecret | null> {
+  const parsed = parseSlug(slug);
+  return parsed ? importLinkKey(parsed.roomId, toBase64Url(parsed.salt), linkKey) : null;
+}
+
 /**
- * Re-derive a room's secret from a slug. Returns `null` when the name or password is wrong;
+ * Re-derive a room's secret from a slug (links without a key, including older random-salt links). Returns `null` when the name or password is wrong;
  * this check happens entirely on the device, before any network traffic.
  */
 export async function unlockRoom(
@@ -55,12 +66,28 @@ export async function unlockRoom(
   return roomIdsEqual(secret.roomId, parsed.roomId) ? secret : null;
 }
 
-/** Accepts a bare slug, `https://host/r/<slug>` or `open2talk://r/<slug>` and returns the slug. */
-export function extractSlug(input: string): string | null {
+export interface RoomLink {
+  slug: string;
+  /** Present for direct-join links; `null` means the joiner needs the name + password. */
+  linkKey: string | null;
+}
+
+const LINK_KEY_RE = /[#?&]k=([A-Za-z0-9_-]{43})(?![A-Za-z0-9_-])/;
+
+/**
+ * Accepts a bare slug, `https://host/r/<slug>` or `open2talk://r/<slug>`, optionally followed by
+ * `#k=<key>` (or `?k=<key>`, used by the mobile app's internal routes).
+ */
+export function parseRoomLink(input: string): RoomLink | null {
   const text = input.trim();
-  if (parseSlug(text)) return text;
-  const m = /\/r\/([A-Za-z0-9_-]{22}\.[A-Za-z0-9_-]{22})/.exec(text);
-  return m && parseSlug(m[1]!) ? m[1]! : null;
+  const m = /(?:^|\/r\/)([A-Za-z0-9_-]{22}\.[A-Za-z0-9_-]{22})(?![A-Za-z0-9_-])/.exec(text);
+  if (!m || !parseSlug(m[1]!)) return null;
+  const k = LINK_KEY_RE.exec(text.slice(m.index + m[0].length));
+  return { slug: m[1]!, linkKey: k ? k[1]! : null };
+}
+
+export function extractSlug(input: string): string | null {
+  return parseRoomLink(input)?.slug ?? null;
 }
 
 /** Accepts a full link and returns its origin, so a native app can offer to use that host. */
@@ -73,12 +100,13 @@ export function extractHost(input: string): string | null {
   }
 }
 
-export function roomUrl(host: string, slug: string): string {
-  return `${host.replace(/\/+$/, "")}/r/${slug}`;
+/** With `linkKey`, anyone who has the link can join directly. The fragment never reaches the server. */
+export function roomUrl(host: string, slug: string, linkKey?: string): string {
+  return `${host.replace(/\/+$/, "")}/r/${slug}${linkKey ? `#k=${linkKey}` : ""}`;
 }
 
-export function deepLink(slug: string): string {
-  return `open2talk://r/${slug}`;
+export function deepLink(slug: string, linkKey?: string): string {
+  return `open2talk://r/${slug}${linkKey ? `#k=${linkKey}` : ""}`;
 }
 
 export interface PasswordStrength {
@@ -87,7 +115,10 @@ export interface PasswordStrength {
   hint: string;
 }
 
-/** Cheap heuristic; the slug can be brute-forced offline so we nudge users toward long passwords. */
+/**
+ * Cheap heuristic. Anyone who sees a room id (the server, or someone with a key-less link) can try
+ * to brute-force the password offline, so we nudge users toward long passwords.
+ */
 export function passwordStrength(password: string): PasswordStrength {
   const classes = [/[a-z]/, /[A-Z]/, /\d/, /[^A-Za-z0-9]/].filter((r) => r.test(password)).length;
   const len = password.length;

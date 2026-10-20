@@ -1,4 +1,4 @@
-import { createRoom, extractHost, extractSlug, passwordStrength, roomUrl } from "@open2talk/core";
+import { createRoom, extractHost, openRoom, parseRoomLink, passwordStrength, roomNameInUse, roomUrl } from "@open2talk/core";
 import * as Clipboard from "expo-clipboard";
 import { Link, Redirect, router, Stack } from "expo-router";
 import { useEffect, useState } from "react";
@@ -32,6 +32,10 @@ export default function HomeScreen() {
     setError(null);
     try {
       const { slug, ...secret } = await createRoom(room, password);
+      if (await roomNameInUse(host, secret.salt)) {
+        setError(`A call named “${room.trim()}” is already in progress. Pick another name, or join it with its password.`);
+        return;
+      }
       await setDisplayName(name.trim());
       setCreated({ slug, secret });
     } catch (e) {
@@ -42,16 +46,17 @@ export default function HomeScreen() {
   }
 
   function joinLink() {
-    const slug = extractSlug(link);
-    if (!slug) {
+    const parsed = parseRoomLink(link);
+    if (!parsed) {
       setLinkError("That doesn't look like an open2talk call link.");
       return;
     }
-    router.push(`/r/${slug}`);
+    // Expo Router has no fragments, so the key travels as a route param inside the app.
+    router.push(`/r/${parsed.slug}${parsed.linkKey ? `?k=${parsed.linkKey}` : ""}`);
   }
 
   const linkHost = extractHost(link);
-  const url = created ? roomUrl(host, created.slug) : "";
+  const url = created ? roomUrl(host, created.slug, created.secret.linkKey) : "";
 
   return (
     <KeyboardAvoidingView style={ui.screen} behavior={Platform.OS === "ios" ? "padding" : undefined}>
@@ -68,7 +73,7 @@ export default function HomeScreen() {
       />
       <ScrollView contentContainerStyle={ui.scroll} keyboardShouldPersistTaps="handled">
         {created ? (
-          <Card title="Your call is ready" subtitle="Send the link along with the room name and password (ideally through a different channel).">
+          <Card title="Your call is ready" subtitle="Anyone with this link can join directly, so share it only with people you invite. People without the link can join with the room name and password.">
             <Text selectable style={[ui.input, { fontFamily: Platform.select({ ios: "Menlo", default: "monospace" }), fontSize: 12 }]}>
               {url}
             </Text>
@@ -92,7 +97,7 @@ export default function HomeScreen() {
             />
           </Card>
         ) : (
-          <Card title="Create a call" subtitle="Pick a room name and password. People join only if they know both.">
+          <Card title="Create a call" subtitle="Pick a room name and password. Anyone with the link joins directly; others can join with the room name and password.">
             <Field label="Room name" value={room} onChangeText={setRoom} placeholder="Weekly sync" autoCapitalize="sentences" />
             <Field label="Password" value={password} onChangeText={setPassword} secureTextEntry placeholder="At least 8 characters" textContentType="newPassword" />
             {password ? <Text style={[ui.muted, { color: strength.ok ? (strength.score >= 3 ? colors.ok : colors.warn) : colors.danger }]}>{strength.hint}</Text> : null}
@@ -115,7 +120,48 @@ export default function HomeScreen() {
           <ErrorText>{linkError}</ErrorText>
           <Button title="Continue" onPress={joinLink} disabled={!link.trim()} />
         </Card>
+
+        <JoinByNameCard initialName={displayName} onSaveName={setDisplayName} />
       </ScrollView>
     </KeyboardAvoidingView>
+  );
+}
+
+/** Join without a link: the room name + password locate the room on their own. */
+function JoinByNameCard({ initialName, onSaveName }: { initialName: string; onSaveName: (name: string) => Promise<void> }) {
+  const [room, setRoom] = useState("");
+  const [password, setPassword] = useState("");
+  const [name, setName] = useState(initialName);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (initialName) setName((n) => n || initialName);
+  }, [initialName]);
+
+  async function join() {
+    setBusy(true);
+    setError(null);
+    try {
+      const { slug, ...secret } = await openRoom(room, password);
+      await onSaveName(name.trim());
+      rememberSecret(slug, secret);
+      router.push(`/r/${slug}`);
+      setPassword("");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not join the room");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Card title="Join with room name" subtitle="No link? Enter the room name and password to join the call.">
+      <Field label="Room name" value={room} onChangeText={setRoom} autoCapitalize="sentences" />
+      <Field label="Password" value={password} onChangeText={setPassword} secureTextEntry textContentType="password" />
+      <Field label="Your name" value={name} onChangeText={setName} placeholder="Alex" autoCapitalize="words" maxLength={40} />
+      <ErrorText>{error}</ErrorText>
+      <Button title="Join" primary busy={busy} disabled={!room.trim() || !password || !name.trim()} onPress={() => void join()} />
+    </Card>
   );
 }

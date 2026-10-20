@@ -1,7 +1,7 @@
 "use client";
 
-import { parseSlug, roomUrl, type RoomSecret } from "@open2talk/core";
-import { CallView, JoinRoomForm, loadDisplayName, takeSecret } from "@open2talk/call-react";
+import { joinFromLink, parseRoomLink, parseSlug, roomUrl, type RoomSecret } from "@open2talk/core";
+import { CallView, DirectJoinForm, JoinRoomForm, loadDisplayName, takeSecret } from "@open2talk/call-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
@@ -9,13 +9,22 @@ import { useEffect, useState } from "react";
 export function RoomClient({ slug }: { slug: string }) {
   const router = useRouter();
   const [session, setSession] = useState<{ secret: RoomSecret; displayName: string } | null>(null);
+  const [invite, setInvite] = useState<RoomSecret | null>(null);
   const [ready, setReady] = useState(false);
 
   useEffect(() => {
-    // The creator arrives with the secret already derived; everyone else must unlock.
-    const secret = takeSecret(slug);
-    if (secret) setSession({ secret, displayName: loadDisplayName() || "Host" });
-    setReady(true);
+    void (async () => {
+      // The creator (or a name + password joiner) arrives with the secret already derived.
+      const secret = takeSecret(slug);
+      if (secret) {
+        setSession({ secret, displayName: loadDisplayName() || "Host" });
+      } else {
+        // A direct link carries the key in its #k= fragment, which never reaches the server.
+        const linkKey = parseRoomLink(`/r/${slug}${window.location.hash}`)?.linkKey;
+        if (linkKey) setInvite(await joinFromLink(slug, linkKey));
+      }
+      setReady(true);
+    })();
   }, [slug]);
 
   if (!parseSlug(slug)) {
@@ -34,6 +43,14 @@ export function RoomClient({ slug }: { slug: string }) {
 
   if (!ready) return null;
 
+  if (!session && invite) {
+    return (
+      <main className="o2t-center">
+        <DirectJoinForm onJoin={(displayName) => setSession({ secret: invite, displayName })} />
+      </main>
+    );
+  }
+
   if (!session) {
     return (
       <main className="o2t-center">
@@ -47,7 +64,7 @@ export function RoomClient({ slug }: { slug: string }) {
       host=""
       secret={session.secret}
       displayName={session.displayName}
-      shareUrl={roomUrl(window.location.origin, slug)}
+      shareUrl={roomUrl(window.location.origin, slug, session.secret.linkKey)}
       onLeave={() => router.push("/")}
     />
   );

@@ -1,13 +1,15 @@
-import { createRoom, passwordStrength, unlockRoom, type RoomSecret } from "@open2talk/core";
+import { createRoom, openRoom, passwordStrength, roomNameInUse, unlockRoom, type RoomSecret } from "@open2talk/core";
 import { useEffect, useState, type FormEvent } from "react";
 import { LockIcon } from "./icons";
 import { loadDisplayName, saveDisplayName } from "./secretCache";
 
 export interface CreateRoomFormProps {
+  /** Server origin used to check the name isn't already taken. Empty string means same origin (web). */
+  host: string;
   onCreated: (result: { slug: string; secret: RoomSecret; displayName: string }) => void;
 }
 
-export function CreateRoomForm({ onCreated }: CreateRoomFormProps) {
+export function CreateRoomForm({ host, onCreated }: CreateRoomFormProps) {
   const [room, setRoom] = useState("");
   const [password, setPassword] = useState("");
   const [displayName, setDisplayName] = useState("");
@@ -23,6 +25,10 @@ export function CreateRoomForm({ onCreated }: CreateRoomFormProps) {
     setError(null);
     try {
       const { slug, ...secret } = await createRoom(room, password);
+      if (await roomNameInUse(host, secret.salt)) {
+        setError(`A call named “${room.trim()}” is already in progress. Pick another name, or join it with its password.`);
+        return;
+      }
       saveDisplayName(displayName.trim());
       onCreated({ slug, secret, displayName: displayName.trim() });
     } catch (err) {
@@ -36,7 +42,8 @@ export function CreateRoomForm({ onCreated }: CreateRoomFormProps) {
     <form className="o2t-card o2t-form" onSubmit={submit}>
       <h2>Create a call</h2>
       <p className="o2t-muted">
-        Pick a room name and password. Share the link; people join only if they know both.
+        Pick a room name and password. Anyone with the link joins directly; others can join with the
+        room name and password.
       </p>
       <label>
         Room name
@@ -72,8 +79,9 @@ export function CreateRoomForm({ onCreated }: CreateRoomFormProps) {
 }
 
 export interface JoinRoomFormProps {
-  slug: string;
-  onUnlocked: (result: { secret: RoomSecret; displayName: string }) => void;
+  /** A key-less link's slug. Without it, the room is found from the name + password alone. */
+  slug?: string;
+  onUnlocked: (result: { slug: string; secret: RoomSecret; displayName: string }) => void;
 }
 
 export function JoinRoomForm({ slug, onUnlocked }: JoinRoomFormProps) {
@@ -89,13 +97,20 @@ export function JoinRoomForm({ slug, onUnlocked }: JoinRoomFormProps) {
     setBusy(true);
     setError(null);
     try {
-      const secret = await unlockRoom(slug, room, password);
-      if (!secret) {
-        setError("Wrong room name or password.");
-        return;
+      let result: { slug: string; secret: RoomSecret };
+      if (slug) {
+        const secret = await unlockRoom(slug, room, password);
+        if (!secret) {
+          setError("Wrong room name or password.");
+          return;
+        }
+        result = { slug, secret };
+      } else {
+        const { slug: found, ...secret } = await openRoom(room, password);
+        result = { slug: found, secret };
       }
       saveDisplayName(displayName.trim());
-      onUnlocked({ secret, displayName: displayName.trim() });
+      onUnlocked({ ...result, displayName: displayName.trim() });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not unlock the room");
     } finally {
@@ -106,12 +121,16 @@ export function JoinRoomForm({ slug, onUnlocked }: JoinRoomFormProps) {
   return (
     <form className="o2t-card o2t-form" onSubmit={submit}>
       <h2>
-        <LockIcon /> Join call
+        <LockIcon /> {slug ? "Join call" : "Join with room name"}
       </h2>
-      <p className="o2t-muted">Enter the room name and password you were given.</p>
+      <p className="o2t-muted">
+        {slug
+          ? "Enter the room name and password you were given."
+          : "No link? Enter the room name and password to join the call."}
+      </p>
       <label>
         Room name
-        <input value={room} onChange={(e) => setRoom(e.target.value)} required autoFocus />
+        <input value={room} onChange={(e) => setRoom(e.target.value)} required autoFocus={!!slug} />
       </label>
       <label>
         Password
@@ -125,6 +144,32 @@ export function JoinRoomForm({ slug, onUnlocked }: JoinRoomFormProps) {
       <button className="o2t-btn o2t-primary" disabled={busy}>
         {busy ? "Checking…" : "Join"}
       </button>
+    </form>
+  );
+}
+
+/** For a direct link: the key is already in hand, so only ask for a display name. */
+export function DirectJoinForm({ onJoin }: { onJoin: (displayName: string) => void }) {
+  const [displayName, setDisplayName] = useState("");
+  useEffect(() => setDisplayName((n) => n || loadDisplayName()), []);
+
+  function submit(e: FormEvent) {
+    e.preventDefault();
+    const name = displayName.trim();
+    if (!name) return;
+    saveDisplayName(name);
+    onJoin(name);
+  }
+
+  return (
+    <form className="o2t-card o2t-form" onSubmit={submit}>
+      <h2>Join call</h2>
+      <p className="o2t-muted">You were invited with a direct link. Choose the name others will see.</p>
+      <label>
+        Your name
+        <input value={displayName} onChange={(e) => setDisplayName(e.target.value)} placeholder="Alex" required maxLength={40} autoFocus />
+      </label>
+      <button className="o2t-btn o2t-primary">Join</button>
     </form>
   );
 }
@@ -143,7 +188,7 @@ export function ShareLink({ url, onJoin }: { url: string; onJoin?: () => void })
   return (
     <div className="o2t-card o2t-form">
       <h2>Your call is ready</h2>
-      <p className="o2t-muted">Send this link along with the room name and password (ideally through a different channel).</p>
+      <p className="o2t-muted">Anyone with this link can join directly, so share it only with people you invite. People without the link can join with the room name and password.</p>
       <div className="o2t-share">
         <input readOnly value={url} onFocus={(e) => e.currentTarget.select()} />
         <button type="button" className="o2t-btn" onClick={copy}>
