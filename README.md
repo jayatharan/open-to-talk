@@ -96,12 +96,18 @@ Configuration (`apps/web/.env`, see `.env.example`):
 | Variable | Default | Purpose |
 | --- | --- | --- |
 | `STUN_URLS` | Google public STUN | Comma-separated STUN servers |
+| `CLOUDFLARE_TURN_KEY_ID` | (none) | Cloudflare Realtime TURN key id |
+| `CLOUDFLARE_TURN_API_TOKEN` | (none) | API token for that key. Short-lived credentials are minted on the server and cached; the token never reaches clients |
 | `TURN_URLS` | (none) | Comma-separated TURN URLs |
 | `TURN_SECRET` | (none) | coturn `static-auth-secret`. Short-lived credentials are minted per request (coturn REST scheme), with no user database |
 | `TURN_TTL_SECONDS` | `3600` | TURN credential lifetime |
 | `MAX_PEERS_PER_ROOM` | `8` | Connection cap per room |
 
-Users behind symmetric NATs or strict corporate firewalls need TURN. To run the bundled coturn:
+Users behind symmetric NATs, mobile carrier NAT (phone hotspots) or strict corporate firewalls need TURN. Without it their calls hang on "connecting…" and often never connect.
+
+The simplest option is [Cloudflare Realtime TURN](https://developers.cloudflare.com/realtime/turn/): create a TURN key in the Cloudflare dashboard (Realtime → TURN) and set `CLOUDFLARE_TURN_KEY_ID` and `CLOUDFLARE_TURN_API_TOKEN`. If Cloudflare can't be reached, clients fall back to STUN.
+
+To run the bundled coturn instead:
 
 ```bash
 TURN_SECRET=change-me docker compose --profile turn up -d

@@ -134,6 +134,27 @@ jobs:
           }
           scp -q deploy/docker-compose.prod.yml "deploy:$DEPLOY_PATH/docker-compose.prod.yml"
 
+      - name: Update TURN settings
+        # Writes the Cloudflare TURN key into open2talk.env (chmod 600), keeping any other
+        # settings there. The values go over stdin, never on a command line. Skipped when
+        # the secrets are not set, so a manually managed env file is left alone.
+        env:
+          CF_TURN_KEY_ID: ${{ secrets.CLOUDFLARE_TURN_KEY_ID }}
+          CF_TURN_API_TOKEN: ${{ secrets.CLOUDFLARE_TURN_API_TOKEN }}
+        run: |
+          if [ -z "$CF_TURN_KEY_ID" ] || [ -z "$CF_TURN_API_TOKEN" ]; then
+            echo "Cloudflare TURN secrets not set; leaving open2talk.env unchanged."
+            exit 0
+          fi
+          # shellcheck disable=SC2029
+          printf 'CLOUDFLARE_TURN_KEY_ID=%s\nCLOUDFLARE_TURN_API_TOKEN=%s\n' "$CF_TURN_KEY_ID" "$CF_TURN_API_TOKEN" |
+            ssh deploy "set -e
+              cd '$DEPLOY_PATH'
+              umask 077
+              touch open2talk.env
+              { grep -vE '^CLOUDFLARE_TURN_(KEY_ID|API_TOKEN)=' open2talk.env || true; cat; } > open2talk.env.tmp
+              mv open2talk.env.tmp open2talk.env"
+
       - name: Pull and restart
         env:
           GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
