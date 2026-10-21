@@ -29,7 +29,7 @@ The config disables proxy buffering for `/api/rooms/*/events` (Server-Sent Event
 
 **Cloudflare DNS:** `open2talk.cosmerg.com` needs a proxied `A` record pointing to the server. It already resolves.
 
-**Optional TURN.** Users behind strict NATs need a relay. Create `/opt/open2talk/open2talk.env` (chmod 600, owned by deploy) with `TURN_URLS` and `TURN_SECRET` (see `apps/web/.env.example`), and run coturn. Cloudflare can't proxy TURN: use a DNS-only record such as `turn.cosmerg.com`, and open 3478/udp+tcp and the relay port range in the firewall. Without TURN, calls still work for most networks using STUN.
+**Optional TURN.** Users behind strict NATs (mobile hotspots, corporate Wi-Fi) need a relay. Create `/opt/open2talk/open2talk.env` (chmod 600, owned by deploy) with either `CLOUDFLARE_TURN_KEY_ID` and `CLOUDFLARE_TURN_API_TOKEN` (Cloudflare Realtime TURN, nothing else to run; or set them as GitHub secrets, see below, and the deploy writes them here), or `TURN_URLS` and `TURN_SECRET` for a self-hosted coturn (see `apps/web/.env.example`). For coturn, Cloudflare can't proxy TURN: use a DNS-only record such as `turn.cosmerg.com`, and open 3478/udp+tcp and the relay port range in the firewall. Without TURN, calls still work for most networks using STUN.
 
 Also add a row for open2talk to the cosmerg repo's `docs/server.md`:
 
@@ -48,6 +48,8 @@ In **jayatharan/open-to-talk → Settings → Secrets and variables → Actions*
 | `SSH_PRIVATE_KEY` | A deploy private key whose public key is in `/home/deploy/.ssh/authorized_keys`. Reuse the cosmerg one or create a new key with `ssh-keygen -t ed25519 -C github-actions-open2talk` |
 | `SSH_KNOWN_HOSTS` | Output of `ssh-keyscan 109.205.176.231` (check the fingerprint against the server) |
 | `SSH_PORT` | Optional, default `22` |
+| `CLOUDFLARE_TURN_KEY_ID` | Optional. Cloudflare Realtime TURN key id (dashboard → Realtime → TURN) |
+| `CLOUDFLARE_TURN_API_TOKEN` | Optional. API token for that key. Each deploy writes both into `open2talk.env` on the server, keeping its other settings |
 
 | Variable | Value |
 | --- | --- |
