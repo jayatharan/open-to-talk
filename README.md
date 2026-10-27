@@ -123,6 +123,16 @@ Set the same `TURN_SECRET`, plus `TURN_URLS=turn:<your-host>:3478`, for the web 
 | Screen share (video) | ✅ | ✅ | ✅ custom picker | ✅ MediaProjection | ✅ ReplayKit broadcast extension (physical device) |
 | Screen share **audio** | ✅ tab audio; full system audio on Windows | ❌ (browser limitation) | ✅ Windows; macOS 13+ (ScreenCaptureKit loopback, needs the system-audio permission); ❌ Linux | ✅ Android 10+: other apps' media/game audio (AudioPlaybackCapture), mixed into the mic track; apps can opt out | ❌ (react-native-webrtc only carries broadcast video) |
 | Hear others' screen audio | ✅ | ✅ | ✅ | ✅ | ✅ |
+| Control someone's shared screen | ✅ | ✅ | ✅ | ❌ | ❌ |
+| Let others control your screen | ❌ | ❌ | ✅ macOS / Windows, whole-screen shares only | ❌ | ❌ |
+
+### Remote control
+
+While the desktop app shares a whole screen, others in the call can click **Request control** on it. Nothing happens until the sharer clicks **Allow control**. After that, the controller's mouse, scroll wheel and keyboard drive the shared screen until either side clicks **Stop**. Control also ends when the sharer presses ⌘⇧Esc (macOS) / Ctrl+Alt+Shift+Esc (Windows), stops sharing or leaves.
+
+- **Input path:** input travels over the call's peer-to-peer data channel, which is DTLS-encrypted, and the server never sees it. The sharer only accepts it from the one person they allowed.
+- **Keyboard:** keys are sent as physical keys, using US-layout positions.
+- **macOS:** the sharer must allow open2talk under System Settings → Privacy & Security → **Accessibility**. The app asks the first time someone is given control. macOS ties that permission to the app's code signature, so it only lasts across updates for signed (Developer ID) builds. Unsigned or dev builds need it granted again after each rebuild, and in dev the entry is "Electron".
 
 Packaging the desktop app:
 

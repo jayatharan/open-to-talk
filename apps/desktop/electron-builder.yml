@@ -8,6 +8,9 @@ directories:
 files:
   - out/**
   - package.json
+# Native modules can't load from inside the asar archive.
+asarUnpack:
+  - node_modules/@nut-tree-fork/**
 protocols:
   - name: open2talk
     schemes: [open2talk]
@@ -22,6 +25,8 @@ mac:
     NSMicrophoneUsageDescription: open2talk needs your microphone for calls.
     NSScreenCaptureUsageDescription: open2talk needs screen recording permission to share your screen.
     NSAudioCaptureUsageDescription: open2talk captures system audio when you share your screen.
+    # Not shown by macOS for Accessibility, but documents why the app asks for it.
+    NSAccessibilityUsageDescription: open2talk needs Accessibility access so people you allow can control your shared screen.
 win:
   target: [nsis]
 nsis:

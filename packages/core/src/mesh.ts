@@ -1,6 +1,7 @@
 import { open, randomId, seal, type RoomSecret } from "./crypto";
 import { Emitter } from "./emitter";
-import type { Envelope, IceCandidate, IceConfig, Payload, PeerRole, PeerState, StreamKind } from "./protocol";
+import type { ControlAction, Envelope, IceCandidate, IceConfig, Payload, PeerRole, PeerState, StreamKind } from "./protocol";
+import { NO_REMOTE_CONTROL, parseControlInput, type ChannelMessage, type ControlInput, type RemoteControlState } from "./remoteControl";
 import { DEFAULT_SCREEN_QUALITY, scaleDownFor, screenQualityPreset, type ScreenQuality } from "./screenQuality";
 import { SignalingClient, type EventSourceFactory, type SignalingStatus } from "./signaling";
 
@@ -35,6 +36,12 @@ export type MeshCallEvents = {
    * the set changes. Based on WebRTC audio-level stats, so the local level needs a connected peer.
    */
   speaking: string[];
+  /** Remote control changed: a request arrived, was answered or ended. */
+  control: RemoteControlState;
+  /** The sharer this device asked to control said no. */
+  "control-denied": string;
+  /** Input from the person currently allowed to control this device's shared screen. */
+  "control-input": ControlInput;
 };
 
 /** Id used in the `speaking` event for this device's own microphone. */
@@ -50,6 +57,10 @@ const NOISE_MULTIPLIER = 3;
 /** Keep the indicator on briefly after speech stops so it doesn't flicker between words. */
 const SPEAKING_HOLD_MS = 700;
 const LEVEL_POLL_MS = 250;
+/** Data channel messages are tiny; anything larger is not ours. */
+const MAX_CHANNEL_MESSAGE = 512;
+/** Skip pointer moves while this much is still queued, so control never lags behind. */
+const MAX_BUFFERED_MOVES = 16 * 1024;
 
 export interface MeshCallOptions {
   host: string;
@@ -95,6 +106,8 @@ class PeerLink {
   tracksAttached = false;
   senders = new Map<string, RTCRtpSender>();
   remoteStreams = new Map<string, MediaStream>();
+  /** The person-to-person data channel ("o2t"), used for remote-control input. */
+  channel: RTCDataChannel | null = null;
   state: PeerState = { name: "Guest", micOn: true, camOn: true, screenOn: false, streams: {} };
 
   constructor(
@@ -128,6 +141,9 @@ export class MeshCall extends Emitter<MeshCallEvents> {
   /** Slow-moving estimate of each speaker's background level (only updated while quiet). */
   private noiseFloor = new Map<string, number>();
   private speaking: string[] = [];
+  /** Whether viewers may ask to control this device's shared screen (desktop, whole screen only). */
+  private controllable = false;
+  private control: RemoteControlState = NO_REMOTE_CONTROL;
 
   constructor(private readonly opts: MeshCallOptions) {
     super();
@@ -262,7 +278,81 @@ export class MeshCall extends Emitter<MeshCallEvents> {
     if (!screen) return;
     this.screenCall = null;
     screen.leave(); // says bye, disconnects and stops the screen tracks
+    this.controllable = false;
+    this.endIncomingControl();
     this.broadcastState();
+  }
+
+  get remoteControl(): RemoteControlState {
+    return this.control;
+  }
+
+  /**
+   * Let viewers ask to control the screen this device shares. Only for a whole-screen share in an
+   * app that can inject input (desktop); turned off again when the share stops.
+   */
+  setControllable(on: boolean): void {
+    on &&= this.screenCall !== null;
+    if (this.controllable === on) return;
+    this.controllable = on;
+    if (!on) this.endIncomingControl();
+    this.broadcastState();
+  }
+
+  /** Ask a person who shares a controllable screen for control of it. */
+  requestControl(peerId: string): void {
+    if (!this.links.get(peerId)?.state.rc) return;
+    const prev = this.control.outgoing;
+    if (prev?.peer === peerId) return;
+    if (prev) void this.sendControl(prev.peer, "revoke");
+    this.setControl({ ...this.control, outgoing: { peer: peerId, status: "pending" } });
+    void this.sendControl(peerId, "request");
+  }
+
+  /** Allow or deny a pending request to control this device's shared screen. */
+  respondControl(peerId: string, allow: boolean): void {
+    if (!this.control.requests.includes(peerId)) return;
+    const requests = this.control.requests.filter((id) => id !== peerId);
+    if (allow && this.controllable && this.links.has(peerId)) {
+      const prev = this.control.controlledBy;
+      if (prev && prev !== peerId) void this.sendControl(prev, "revoke");
+      this.setControl({ ...this.control, controlledBy: peerId, requests });
+      void this.sendControl(peerId, "grant");
+    } else {
+      this.setControl({ ...this.control, requests });
+      void this.sendControl(peerId, "deny");
+    }
+  }
+
+  /** Stop controlling (or cancel the request to control) another person's screen. */
+  stopControlling(): void {
+    const out = this.control.outgoing;
+    if (!out) return;
+    this.setControl({ ...this.control, outgoing: null });
+    void this.sendControl(out.peer, "revoke");
+  }
+
+  /** Take control of this device back from whoever has it. */
+  revokeControl(): void {
+    const by = this.control.controlledBy;
+    if (!by) return;
+    this.setControl({ ...this.control, controlledBy: null });
+    void this.sendControl(by, "revoke");
+  }
+
+  /** Send pointer/keyboard input to the screen this device is allowed to control. */
+  sendControlInput(e: ControlInput): void {
+    const out = this.control.outgoing;
+    if (out?.status !== "active") return;
+    const ch = this.links.get(out.peer)?.channel;
+    if (ch?.readyState !== "open") return;
+    if (e.k === "move" && ch.bufferedAmount > MAX_BUFFERED_MOVES) return;
+    const msg: ChannelMessage = { t: "rc", e };
+    try {
+      ch.send(JSON.stringify(msg));
+    } catch {
+      // the channel closed in between; the link is going away
+    }
   }
 
   leave(): void {
@@ -275,6 +365,8 @@ export class MeshCall extends Emitter<MeshCallEvents> {
     this.screenCall?.leave();
     this.screenCall = null;
     this.localCamera?.getTracks().forEach((t) => t.stop());
+    this.controllable = false;
+    this.setControl(NO_REMOTE_CONTROL);
     this.emitPeers();
   }
 
@@ -297,6 +389,7 @@ export class MeshCall extends Emitter<MeshCallEvents> {
       camOn: this.camOn,
       screenOn: this.screenCall !== null,
       streams,
+      ...(this.controllable && this.screenCall ? { rc: true } : {}),
     };
   }
 
@@ -338,6 +431,7 @@ export class MeshCall extends Emitter<MeshCallEvents> {
         }
         const link = this.ensureLink(p.from, plan === "offer");
         link.state = p.state;
+        this.checkOutgoingControl(p.from, p.state);
         if (reply && !this.isScreenRole) {
           await this.send({ t: "hello", from: this.peerId, to: p.from, reply: true, state: this.localState() });
         }
@@ -348,6 +442,7 @@ export class MeshCall extends Emitter<MeshCallEvents> {
         if (this.ignoresUnknown(p.from)) break;
         if (!this.links.has(p.from) && this.planFor(p.from, p.state, true) === "skip") break;
         this.ensureLink(p.from).state = p.state;
+        this.checkOutgoingControl(p.from, p.state);
         this.emitPeers();
         break;
       }
@@ -361,6 +456,11 @@ export class MeshCall extends Emitter<MeshCallEvents> {
         break;
       case "bye":
         this.closeLink(p.from);
+        break;
+      case "rc":
+        // Only between people who are already connected; never with a screen-share participant.
+        if (this.isScreenRole || !this.links.has(p.from) || this.links.get(p.from)!.state.role === "screen") break;
+        this.onControl(p.from, p.action);
         break;
     }
   }
@@ -429,13 +529,92 @@ export class MeshCall extends Emitter<MeshCallEvents> {
       this.emitPeers();
     });
 
+    pc.addEventListener("datachannel", (ev: RTCDataChannelEvent) => {
+      if (ev.channel.label === "o2t") this.attachChannel(link, ev.channel);
+    });
+
     if (initiator) {
       // The data channel guarantees there is something to negotiate (and a "connected" state)
-      // even when nobody has a camera or mic; it is also the hook for future in-call chat.
-      pc.createDataChannel("o2t");
+      // even when nobody has a camera or mic; it also carries remote-control input.
+      this.attachChannel(link, pc.createDataChannel("o2t"));
       this.attachLocal(link);
     }
     return link;
+  }
+
+  private attachChannel(link: PeerLink, channel: RTCDataChannel): void {
+    link.channel = channel;
+    channel.addEventListener("message", (ev: MessageEvent) => this.onChannelMessage(link.id, ev.data));
+  }
+
+  private onChannelMessage(from: string, data: unknown): void {
+    // Input is only accepted from the one person this device has allowed to control it.
+    if (this.control.controlledBy !== from || typeof data !== "string" || data.length > MAX_CHANNEL_MESSAGE) return;
+    let msg: Partial<ChannelMessage>;
+    try {
+      msg = JSON.parse(data) as Partial<ChannelMessage>;
+    } catch {
+      return;
+    }
+    if (msg?.t !== "rc") return;
+    const input = parseControlInput(msg.e);
+    if (input) this.emit("control-input", input);
+  }
+
+  private sendControl(to: string, action: ControlAction): Promise<void> {
+    return this.send({ t: "rc", from: this.peerId, to, action });
+  }
+
+  private onControl(from: string, action: ControlAction): void {
+    const c = this.control;
+    switch (action) {
+      case "request":
+        if (!this.controllable) void this.sendControl(from, "deny");
+        else if (c.controlledBy === from) void this.sendControl(from, "grant");
+        else if (!c.requests.includes(from)) this.setControl({ ...c, requests: [...c.requests, from] });
+        break;
+      case "grant":
+        if (c.outgoing?.peer === from) this.setControl({ ...c, outgoing: { peer: from, status: "active" } });
+        break;
+      case "deny":
+        if (c.outgoing?.peer === from) {
+          this.setControl({ ...c, outgoing: null });
+          this.emit("control-denied", from);
+        }
+        break;
+      case "revoke":
+        this.forgetControl(from);
+        break;
+    }
+  }
+
+  /** Drop the request to control a sharer once they stop offering control. */
+  private checkOutgoingControl(id: string, state: PeerState): void {
+    if (this.control.outgoing?.peer === id && !state.rc) this.setControl({ ...this.control, outgoing: null });
+  }
+
+  /** Deny everyone waiting and take control back (the share stopped or control was turned off). */
+  private endIncomingControl(): void {
+    const { requests, controlledBy } = this.control;
+    for (const id of requests) void this.sendControl(id, "deny");
+    if (controlledBy) void this.sendControl(controlledBy, "revoke");
+    if (requests.length || controlledBy) this.setControl({ ...this.control, requests: [], controlledBy: null });
+  }
+
+  /** Forget any remote-control relationship with a peer (they revoked it or left). */
+  private forgetControl(id: string): void {
+    const c = this.control;
+    if (c.outgoing?.peer !== id && c.controlledBy !== id && !c.requests.includes(id)) return;
+    this.setControl({
+      outgoing: c.outgoing?.peer === id ? null : c.outgoing,
+      controlledBy: c.controlledBy === id ? null : c.controlledBy,
+      requests: c.requests.filter((r) => r !== id),
+    });
+  }
+
+  private setControl(next: RemoteControlState): void {
+    this.control = next;
+    this.emit("control", next);
   }
 
   private attachLocal(link: PeerLink): void {
@@ -586,6 +765,7 @@ export class MeshCall extends Emitter<MeshCallEvents> {
     this.links.delete(id);
     this.noiseFloor.delete(id);
     this.lastHeard.delete(id);
+    this.forgetControl(id);
     try {
       link.pc.close();
     } catch {

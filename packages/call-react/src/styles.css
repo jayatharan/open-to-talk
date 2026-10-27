@@ -920,6 +920,133 @@ select {
   color: var(--o2t-accent);
 }
 
+/* ------------------------------------------------------------------ remote control */
+
+/* Input goes to the remote screen: no zoom cursor, and a clear frame so it's obvious. */
+.o2t-tile.o2t-tile-control {
+  cursor: default;
+  box-shadow: 0 0 0 2px var(--o2t-accent);
+}
+
+.o2t-tile.o2t-tile-control:focus-visible {
+  outline: none;
+}
+
+.o2t-tile-overlay {
+  position: absolute;
+  top: 10px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 2;
+  max-width: calc(100% - 100px);
+  cursor: default;
+}
+
+.o2t-rc-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 4px 4px 12px;
+  border-radius: 999px;
+  background: rgb(2 6 23 / 0.7);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border: 1px solid var(--o2t-border-strong);
+  font-size: 0.8rem;
+  white-space: nowrap;
+  animation: o2t-pop var(--o2t-dur-pop) var(--o2t-ease-out) both;
+}
+
+.o2t-rc-bar > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.o2t-rc-bar-idle {
+  padding: 4px;
+  opacity: 0.75;
+  transition: opacity var(--o2t-dur-ui) var(--o2t-ease-out);
+}
+
+.o2t-tile:hover .o2t-rc-bar-idle,
+.o2t-rc-bar-idle:focus-within {
+  opacity: 1;
+}
+
+.o2t-rc-bar-active {
+  border-color: var(--o2t-accent);
+}
+
+.o2t-rc-btn {
+  border: 0;
+  border-radius: 999px;
+  padding: 5px 12px;
+  font: inherit;
+  font-weight: 600;
+  color: var(--o2t-text);
+  background: rgb(148 163 184 / 0.18);
+  cursor: pointer;
+  transition: background var(--o2t-dur-micro) var(--o2t-ease-out);
+}
+
+.o2t-rc-btn:hover,
+.o2t-rc-btn:focus-visible {
+  background: rgb(148 163 184 / 0.3);
+}
+
+.o2t-rc-stop {
+  background: var(--o2t-danger);
+  color: #fff;
+}
+
+.o2t-rc-stop:hover,
+.o2t-rc-stop:focus-visible {
+  background: #d93f45;
+}
+
+.o2t-rc-icon {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+
+.o2t-rc-icon:hover {
+  background: rgb(148 163 184 / 0.18);
+}
+
+.o2t-rc-icon svg {
+  width: 14px;
+  height: 14px;
+}
+
+.o2t-banner-control {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 4px 4px 4px 14px;
+  border-color: rgb(242 85 90 / 0.6);
+}
+
+.o2t-rc-prompt h2 {
+  font-size: 1.1rem;
+}
+
+.o2t-rc-prompt p {
+  margin: 0;
+}
+
+.o2t-rc-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
 /* ------------------------------------------------------------------ reduced motion */
 
 /* Content appears in its final state immediately; only colour/opacity feedback remains. */

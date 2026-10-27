@@ -2,7 +2,10 @@ import {
   fetchIceConfig,
   LOCAL_SPEAKER,
   MeshCall,
+  NO_REMOTE_CONTROL,
   screenQualityPreset,
+  type ControlInput,
+  type RemoteControlState,
   type RemotePeer,
   type RoomSecret,
   type ScreenQuality,
@@ -17,6 +20,22 @@ export interface UseMeshCallOptions {
   displayName: string;
   /** Desktop hook (e.g. show a source picker first). Resolve `false` to cancel. */
   beforeScreenShare?: () => Promise<boolean>;
+  /** Lets other people control this device's shared screen (desktop only). */
+  remoteControl?: RemoteControlHost;
+}
+
+/** What an app that can inject input provides so others can control its shared screen. */
+export interface RemoteControlHost {
+  /** Whether the screen just shared can be controlled (a whole screen, not a window). */
+  canControlShare(): Promise<boolean>;
+  /** About to give `name` control. Resolve an error message to refuse (e.g. a missing OS permission). */
+  begin(name: string): Promise<string | null>;
+  /** Input from the person in control. */
+  input(e: ControlInput): void;
+  /** Control ended: release anything still held down. */
+  end(): void;
+  /** Subscribe to the host's emergency stop (e.g. a global shortcut). */
+  onStop(fn: () => void): () => void;
 }
 
 async function getCameraAndMic(): Promise<{ stream: MediaStream | null; warning: string | null }> {
@@ -105,8 +124,11 @@ function useLocalSpeaking(stream: MediaStream | null, micOn: boolean): boolean {
   return micOn && heard;
 }
 
-export function useMeshCall({ host, secret, displayName, beforeScreenShare }: UseMeshCallOptions) {
+export function useMeshCall({ host, secret, displayName, beforeScreenShare, remoteControl }: UseMeshCallOptions) {
   const callRef = useRef<MeshCall | null>(null);
+  const rcHost = useRef(remoteControl);
+  rcHost.current = remoteControl;
+  const [control, setControl] = useState<RemoteControlState>(NO_REMOTE_CONTROL);
   const [peers, setPeers] = useState<RemotePeer[]>([]);
   const [status, setStatus] = useState<SignalingStatus>("connecting");
   const [localStream, setLocalStream] = useState<MediaStream | null>(null);
@@ -143,6 +165,12 @@ export function useMeshCall({ host, secret, displayName, beforeScreenShare }: Us
         setWarning(e.code === "screen-limit" ? "Too many screens are already being shared in this call." : e.message);
       });
       call.on("speaking", setSpeaking);
+      call.on("control", setControl);
+      call.on("control-denied", (id) => {
+        const name = call?.peers.find((p) => p.id === id)?.state.name ?? "They";
+        setWarning(`${name} declined your request to control their screen.`);
+      });
+      call.on("control-input", (e) => rcHost.current?.input(e));
       setMediaPending(false);
       setLocalStream(media.stream);
       setWarning(media.warning);
@@ -231,6 +259,8 @@ export function useMeshCall({ host, secret, displayName, beforeScreenShare }: Us
       }
       call.startScreenShare(stream, { quality });
       setScreenStream(stream);
+      const rc = rcHost.current;
+      if (rc && (await rc.canControlShare().catch(() => false)) && callRef.current === call) call.setControllable(true);
       if (!stream.getAudioTracks().length) {
         setWarning(
           "Screen shared without audio. On the web, share a browser tab with “Share audio” on; on macOS, allow open2talk to capture system audio in System Settings → Privacy & Security.",
@@ -251,6 +281,38 @@ export function useMeshCall({ host, secret, displayName, beforeScreenShare }: Us
   const leave = useCallback(() => {
     callRef.current?.leave();
   }, []);
+
+  // Release the host's input whenever control of this device ends, however it ended. Handing
+  // control straight to someone else keeps the host armed (`allowControl` already began it).
+  const controlledBy = control.controlledBy;
+  const wasControlled = useRef(false);
+  useEffect(() => {
+    if (wasControlled.current && !controlledBy) rcHost.current?.end();
+    wasControlled.current = !!controlledBy;
+  }, [controlledBy]);
+  useEffect(() => () => rcHost.current?.end(), []);
+
+  // The host's emergency stop takes control back.
+  useEffect(() => remoteControl?.onStop(() => callRef.current?.revokeControl()), [remoteControl]);
+
+  const allowControl = useCallback(
+    async (peerId: string) => {
+      const call = callRef.current;
+      const rc = rcHost.current;
+      if (!call || !rc) return;
+      const name = peers.find((p) => p.id === peerId)?.state.name ?? "Someone";
+      const error = await rc.begin(name).catch((e: unknown) => (e instanceof Error ? e.message : String(e)));
+      if (error) {
+        call.respondControl(peerId, false);
+        setWarning(error);
+        return;
+      }
+      call.respondControl(peerId, true);
+      // Granting can fail (the person left meanwhile); don't leave the host armed.
+      if (call.remoteControl.controlledBy !== peerId) rc.end();
+    },
+    [peers],
+  );
 
   const localSpeaking = useLocalSpeaking(localStream, micOn);
   // Peers come from WebRTC stats; this device's own level comes from the Web Audio meter above.
@@ -279,5 +341,12 @@ export function useMeshCall({ host, secret, displayName, beforeScreenShare }: Us
     toggleCam,
     toggleScreen,
     leave,
+    control,
+    requestControl: (peerId: string) => callRef.current?.requestControl(peerId),
+    stopControlling: () => callRef.current?.stopControlling(),
+    sendControlInput: (e: ControlInput) => callRef.current?.sendControlInput(e),
+    allowControl,
+    denyControl: (peerId: string) => callRef.current?.respondControl(peerId, false),
+    revokeControl: () => callRef.current?.revokeControl(),
   };
 }

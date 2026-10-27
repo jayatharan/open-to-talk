@@ -2,6 +2,7 @@ import { app, BrowserWindow, desktopCapturer, ipcMain, session, shell, systemPre
 import { readFileSync, writeFileSync } from "node:fs";
 import { release } from "node:os";
 import { join } from "node:path";
+import { noteSharedSource, setupRemoteControl, shutdownRemoteControl } from "./remoteControl";
 
 const PROTOCOL = "open2talk";
 
@@ -115,6 +116,7 @@ function setupSession(): void {
     const sources = await desktopCapturer.getSources({ types: ["screen", "window"] });
     const source = sources.find((s) => s.id === id);
     if (!source) return callback(null);
+    noteSharedSource(source);
     callback({
       video: source,
       ...(request.audioRequested && systemAudioSupported ? { audio: "loopback" as const } : {}),
@@ -137,6 +139,7 @@ ipcMain.handle("app:consume-deeplink", () => {
 ipcMain.handle("app:open-external", (_e, url: string) => {
   if (/^https?:\/\//.test(url)) return shell.openExternal(url);
 });
+setupRemoteControl(() => mainWindow);
 
 function createWindow(): void {
   mainWindow = new BrowserWindow({
@@ -159,7 +162,14 @@ function createWindow(): void {
   });
 
   mainWindow.once("ready-to-show", () => mainWindow?.show());
-  mainWindow.on("closed", () => (mainWindow = null));
+  mainWindow.on("closed", () => {
+    mainWindow = null;
+    shutdownRemoteControl();
+  });
+  // A reload drops the call, and with it any control in progress.
+  mainWindow.webContents.on("did-start-navigation", (e) => {
+    if (e.isMainFrame && !e.isSameDocument) shutdownRemoteControl();
+  });
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
     if (/^https?:\/\//.test(url)) void shell.openExternal(url);
     return { action: "deny" };
@@ -187,6 +197,8 @@ app.whenReady().then(async () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
   });
 });
+
+app.on("will-quit", () => shutdownRemoteControl());
 
 app.on("window-all-closed", () => {
   if (process.platform !== "darwin") app.quit();
