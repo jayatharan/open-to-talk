@@ -1,5 +1,13 @@
-import { SCREEN_QUALITIES, screenQualityPreset, type RoomSecret } from "@open2talk/core";
-import { useEffect, useRef, useState } from "react";
+import {
+  SCREEN_QUALITIES,
+  screenQualityPreset,
+  videoPointToNormalized,
+  type ControlInput,
+  type MouseButton,
+  type RemotePeer,
+  type RoomSecret,
+} from "@open2talk/core";
+import { useEffect, useRef, useState, type ReactNode, type RefObject } from "react";
 import {
   CamIcon,
   CamOffIcon,
@@ -13,7 +21,138 @@ import {
   ScreenIcon,
   SwitchCameraIcon,
 } from "./icons";
-import { useMeshCall } from "./useMeshCall";
+import { RemoteControlPrompt } from "./RemoteControlPrompt";
+import { useMeshCall, type RemoteControlHost } from "./useMeshCall";
+
+const MAX_WHEEL = 2000;
+const clampWheel = (v: number) => Math.max(-MAX_WHEEL, Math.min(MAX_WHEEL, v));
+
+/**
+ * While `send` is set, pointer, wheel and keyboard input on the tile goes to the remote screen
+ * instead of the page. Anything still held down is released when control ends or focus leaves.
+ */
+function useControlInput(
+  tileRef: RefObject<HTMLDivElement | null>,
+  videoRef: RefObject<HTMLVideoElement | null>,
+  send: ((e: ControlInput) => void) | undefined,
+) {
+  const sendRef = useRef(send);
+  sendRef.current = send;
+  const active = !!send;
+
+  useEffect(() => {
+    const tile = tileRef.current;
+    const video = videoRef.current;
+    if (!active || !tile || !video) return;
+    const emit = (e: ControlInput) => sendRef.current?.(e);
+    const keys = new Set<string>();
+    const buttons = new Set<MouseButton>();
+    let frame = 0;
+    let move: { x: number; y: number } | null = null;
+    let last = { x: 0.5, y: 0.5 };
+    let wheel = { dx: 0, dy: 0 };
+
+    const at = (e: MouseEvent, clamp = false) =>
+      videoPointToNormalized(e.clientX, e.clientY, video.getBoundingClientRect(), video.videoWidth, video.videoHeight, clamp);
+    // The tile's own buttons (e.g. Stop) stay usable.
+    const onUi = (e: Event) => !!(e.target as Element | null)?.closest?.(".o2t-tile-overlay");
+    const buttonOf = (e: MouseEvent): MouseButton | null => (e.button === 0 || e.button === 1 || e.button === 2 ? e.button : null);
+
+    // Moves and wheel deltas are coalesced to one message per frame.
+    const flush = () => {
+      frame = 0;
+      if (move) emit({ k: "move", ...move });
+      if (wheel.dx || wheel.dy) emit({ k: "wheel", dx: clampWheel(wheel.dx), dy: clampWheel(wheel.dy) });
+      move = null;
+      wheel = { dx: 0, dy: 0 };
+    };
+    const schedule = () => {
+      if (!frame) frame = requestAnimationFrame(flush);
+    };
+    const releaseKey = (code: string) => {
+      if (keys.delete(code)) emit({ k: "key", code, down: false });
+    };
+    const releaseAll = () => {
+      for (const code of [...keys]) releaseKey(code);
+      for (const b of buttons) emit({ k: "up", b, ...last });
+      buttons.clear();
+    };
+
+    const onMove = (e: PointerEvent) => {
+      if (onUi(e)) return;
+      const p = at(e, buttons.size > 0);
+      if (!p) return;
+      move = last = p;
+      schedule();
+    };
+    const onDown = (e: PointerEvent) => {
+      const b = buttonOf(e);
+      const p = at(e);
+      if (onUi(e) || b === null || !p) return;
+      e.preventDefault();
+      tile.focus();
+      tile.setPointerCapture?.(e.pointerId);
+      flush();
+      buttons.add(b);
+      last = p;
+      emit({ k: "down", b, ...p });
+    };
+    const onUp = (e: PointerEvent) => {
+      const b = buttonOf(e);
+      if (b === null || !buttons.delete(b)) return;
+      const p = at(e, true) ?? last;
+      flush();
+      emit({ k: "up", b, ...p });
+    };
+    const onWheel = (e: WheelEvent) => {
+      if (onUi(e)) return;
+      e.preventDefault();
+      const scale = e.deltaMode === 1 ? 40 : e.deltaMode === 2 ? 800 : 1;
+      wheel = { dx: wheel.dx + e.deltaX * scale, dy: wheel.dy + e.deltaY * scale };
+      schedule();
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (onUi(e) || !e.code) return;
+      e.preventDefault();
+      e.stopPropagation();
+      if (e.type === "keyup") {
+        // macOS browsers swallow key-ups while ⌘ is held, so release those keys with ⌘.
+        if (e.code.startsWith("Meta")) for (const code of [...keys]) if (code !== e.code) releaseKey(code);
+        releaseKey(e.code);
+        return;
+      }
+      keys.add(e.code);
+      emit({ k: "key", code: e.code, down: true });
+    };
+    const noMenu = (e: Event) => {
+      if (!onUi(e)) e.preventDefault();
+    };
+
+    tile.addEventListener("pointermove", onMove);
+    tile.addEventListener("pointerdown", onDown);
+    tile.addEventListener("pointerup", onUp);
+    tile.addEventListener("pointercancel", releaseAll);
+    tile.addEventListener("wheel", onWheel, { passive: false });
+    tile.addEventListener("keydown", onKey);
+    tile.addEventListener("keyup", onKey);
+    tile.addEventListener("contextmenu", noMenu);
+    tile.addEventListener("blur", releaseAll);
+    tile.focus();
+    return () => {
+      tile.removeEventListener("pointermove", onMove);
+      tile.removeEventListener("pointerdown", onDown);
+      tile.removeEventListener("pointerup", onUp);
+      tile.removeEventListener("pointercancel", releaseAll);
+      tile.removeEventListener("wheel", onWheel);
+      tile.removeEventListener("keydown", onKey);
+      tile.removeEventListener("keyup", onKey);
+      tile.removeEventListener("contextmenu", noMenu);
+      tile.removeEventListener("blur", releaseAll);
+      if (frame) cancelAnimationFrame(frame);
+      releaseAll();
+    };
+  }, [active, tileRef, videoRef]);
+}
 
 function VideoTile({
   stream,
@@ -25,6 +164,8 @@ function VideoTile({
   connecting,
   speaking,
   kind = "camera",
+  onControlInput,
+  overlay,
 }: {
   stream: MediaStream | null;
   name: string;
@@ -36,6 +177,10 @@ function VideoTile({
   /** Highlights the tile while this person's microphone picks up speech. */
   speaking?: boolean;
   kind?: "camera" | "screen";
+  /** Sends input on the tile to the remote screen it shows (while controlling it). */
+  onControlInput?: (e: ControlInput) => void;
+  /** Buttons over the tile; clicks on them don't toggle full screen or reach the remote screen. */
+  overlay?: (tile: { large: boolean; toggleFullscreen: () => void }) => ReactNode;
 }) {
   const ref = useRef<HTMLVideoElement>(null);
   const tileRef = useRef<HTMLDivElement>(null);
@@ -48,6 +193,8 @@ function VideoTile({
   // A camera can be "on" before any frame arrives (or while a peer's track is stalled); show the
   // avatar until the video element actually has a picture, instead of a black rectangle.
   const [hasFrames, setHasFrames] = useState(false);
+  const controlling = !!onControlInput;
+  useControlInput(tileRef, ref, onControlInput);
 
   useEffect(() => {
     const el = ref.current;
@@ -93,7 +240,8 @@ function VideoTile({
   }, []);
 
   useEffect(() => {
-    if (!expanded && !isFullscreen) return;
+    // While controlling, Esc belongs to the remote screen.
+    if ((!expanded && !isFullscreen) || controlling) return;
     // Browsers exit fullscreen on Esc themselves; Electron doesn't, so handle both here.
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== "Escape") return;
@@ -102,7 +250,7 @@ function VideoTile({
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [expanded, isFullscreen]);
+  }, [expanded, isFullscreen, controlling]);
 
   function toggleFullscreen() {
     const tile = tileRef.current;
@@ -121,14 +269,14 @@ function VideoTile({
   return (
     <div
       ref={tileRef}
-      className={`o2t-tile o2t-tile-${kind}${expanded ? " o2t-tile-expanded" : ""}${speaking ? " o2t-tile-speaking" : ""}`}
-      role="button"
+      className={`o2t-tile o2t-tile-${kind}${expanded ? " o2t-tile-expanded" : ""}${speaking ? " o2t-tile-speaking" : ""}${controlling ? " o2t-tile-control" : ""}`}
+      role={controlling ? "application" : "button"}
       tabIndex={0}
-      aria-label={large ? `Exit full screen: ${name}` : `View ${name} full screen`}
-      title={large ? "Click or press Esc to exit full screen" : "Click to view full screen"}
-      onClick={toggleFullscreen}
+      aria-label={controlling ? `Controlling ${name}` : large ? `Exit full screen: ${name}` : `View ${name} full screen`}
+      title={controlling ? undefined : large ? "Click or press Esc to exit full screen" : "Click to view full screen"}
+      onClick={controlling ? undefined : toggleFullscreen}
       onKeyDown={(e) => {
-        if (e.key === "Enter" || e.key === " ") {
+        if (!controlling && (e.key === "Enter" || e.key === " ")) {
           e.preventDefault();
           toggleFullscreen();
         }
@@ -144,9 +292,16 @@ function VideoTile({
         style={{ opacity: hasVideo ? 1 : 0 }}
       />
       {!hasVideo && <div className="o2t-avatar">{name.slice(0, 1).toUpperCase() || "?"}</div>}
-      <span className="o2t-tile-expand" aria-hidden="true">
-        {large ? <CollapseIcon /> : <ExpandIcon />}
-      </span>
+      {!controlling && (
+        <span className="o2t-tile-expand" aria-hidden="true">
+          {large ? <CollapseIcon /> : <ExpandIcon />}
+        </span>
+      )}
+      {overlay && (
+        <div className="o2t-tile-overlay" onClick={(e) => e.stopPropagation()} onKeyDown={(e) => e.stopPropagation()}>
+          {overlay({ large, toggleFullscreen })}
+        </div>
+      )}
       <div className="o2t-tile-label">
         {micOn === false && (
           <span className="o2t-badge" title="Muted">
@@ -169,10 +324,70 @@ export interface CallViewProps {
   beforeScreenShare?: () => Promise<boolean>;
   /** Hide the screen-share button on platforms that cannot capture the screen. */
   canShareScreen?: boolean;
+  /** Lets others control this device's shared screen (desktop only). Anyone can control others. */
+  remoteControl?: RemoteControlHost;
+  /** Label of the host's shortcut that takes control back, e.g. "⌘⇧Esc". */
+  stopControlShortcut?: string;
 }
 
-export function CallView({ host, secret, displayName, shareUrl, onLeave, beforeScreenShare, canShareScreen = true }: CallViewProps) {
-  const call = useMeshCall({ host, secret, displayName, beforeScreenShare });
+/** Request/stop control of the screen on stage. */
+function ControlBar({
+  peer,
+  status,
+  tile,
+  onRequest,
+  onStop,
+}: {
+  peer: RemotePeer;
+  status: "pending" | "active" | null;
+  tile: { large: boolean; toggleFullscreen: () => void };
+  onRequest: () => void;
+  onStop: () => void;
+}) {
+  if (status === "active") {
+    return (
+      <div className="o2t-rc-bar o2t-rc-bar-active">
+        <span>Controlling {peer.state.name}’s screen</span>
+        <button className="o2t-rc-icon" onClick={tile.toggleFullscreen} title={tile.large ? "Exit full screen" : "Full screen"}>
+          {tile.large ? <CollapseIcon /> : <ExpandIcon />}
+        </button>
+        <button className="o2t-rc-btn o2t-rc-stop" onClick={onStop}>
+          Stop
+        </button>
+      </div>
+    );
+  }
+  if (status === "pending") {
+    return (
+      <div className="o2t-rc-bar">
+        <span>Waiting for {peer.state.name} to allow control…</span>
+        <button className="o2t-rc-btn" onClick={onStop}>
+          Cancel
+        </button>
+      </div>
+    );
+  }
+  return (
+    <div className="o2t-rc-bar o2t-rc-bar-idle">
+      <button className="o2t-rc-btn" onClick={onRequest} title={`Ask ${peer.state.name} to let you control their screen`}>
+        Request control
+      </button>
+    </div>
+  );
+}
+
+export function CallView({
+  host,
+  secret,
+  displayName,
+  shareUrl,
+  onLeave,
+  beforeScreenShare,
+  canShareScreen = true,
+  remoteControl,
+  stopControlShortcut,
+}: CallViewProps) {
+  const call = useMeshCall({ host, secret, displayName, beforeScreenShare, remoteControl });
   // Mobile browsers (e.g. iOS Safari) have no getDisplayMedia.
   const screenSupported = canShareScreen && !!navigator.mediaDevices?.getDisplayMedia;
   const [copied, setCopied] = useState(false);
@@ -194,11 +409,17 @@ export function CallView({ host, secret, displayName, shareUrl, onLeave, beforeS
   }, [menu]);
 
   const remoteScreens = call.peers.filter((p) => p.screen);
+  const outgoing = call.control.outgoing;
+  // The screen being controlled (or asked for) stays on stage.
+  const stagePeer = call.screenStream ? undefined : (remoteScreens.find((p) => p.id === outgoing?.peer) ?? remoteScreens[0]);
   const stage = call.screenStream
     ? { stream: call.screenStream, name: `Your screen · ${screenQualityPreset(call.screenQuality).label}`, local: true }
-    : remoteScreens[0]
-      ? { stream: remoteScreens[0].screen, name: `${remoteScreens[0].state.name}'s screen`, local: false }
+    : stagePeer
+      ? { stream: stagePeer.screen, name: `${stagePeer.state.name}'s screen`, local: false }
       : null;
+  const stageControl = stagePeer && outgoing?.peer === stagePeer.id ? outgoing.status : null;
+  const nameOf = (id: string) => call.peers.find((p) => p.id === id)?.state.name ?? "Someone";
+  const controlRequest = call.control.requests[0];
 
   function leave() {
     call.leave();
@@ -253,7 +474,7 @@ export function CallView({ host, secret, displayName, shareUrl, onLeave, beforeS
         />
       ))}
       {/* Extra remote screen shares (beyond the one on stage) still need to be heard. */}
-      {remoteScreens.slice(stage && !stage.local ? 1 : 0).map((p) => (
+      {remoteScreens.filter((p) => p !== stagePeer).map((p) => (
         <VideoTile key={`${p.id}-screen`} stream={p.screen} name={`${p.state.name}'s screen`} showVideo kind="screen" />
       ))}
     </>
@@ -268,6 +489,17 @@ export function CallView({ host, secret, displayName, shareUrl, onLeave, beforeS
           <div className="o2t-banner">{call.status === "reconnecting" ? "Reconnecting…" : "Connecting…"}</div>
         )
       )}
+      {call.control.controlledBy && (
+        <div className="o2t-banner o2t-banner-control" role="status">
+          <span>
+            {nameOf(call.control.controlledBy)} is controlling your screen
+            {stopControlShortcut && <span className="o2t-muted"> · {stopControlShortcut} to stop</span>}
+          </span>
+          <button className="o2t-rc-btn o2t-rc-stop" onClick={call.revokeControl}>
+            Stop
+          </button>
+        </div>
+      )}
       {call.warning && (
         <div className="o2t-banner o2t-banner-warn" onClick={call.dismissWarning}>
           {call.warning}
@@ -277,7 +509,27 @@ export function CallView({ host, secret, displayName, shareUrl, onLeave, beforeS
       {stage ? (
         <div className="o2t-stage-layout">
           <div className="o2t-stage">
-            <VideoTile stream={stage.stream} name={stage.name} muted={stage.local} showVideo kind="screen" />
+            <VideoTile
+              stream={stage.stream}
+              name={stage.name}
+              muted={stage.local}
+              showVideo
+              kind="screen"
+              onControlInput={stageControl === "active" ? call.sendControlInput : undefined}
+              overlay={
+                stagePeer && (stagePeer.state.rc || stageControl)
+                  ? (tile) => (
+                      <ControlBar
+                        peer={stagePeer}
+                        status={stageControl}
+                        tile={tile}
+                        onRequest={() => call.requestControl(stagePeer.id)}
+                        onStop={call.stopControlling}
+                      />
+                    )
+                  : undefined
+              }
+            />
           </div>
           <div className="o2t-strip">{tiles}</div>
         </div>
@@ -289,6 +541,14 @@ export function CallView({ host, secret, displayName, shareUrl, onLeave, beforeS
 
       {call.peers.length === 0 && call.status === "open" && (
         <div className="o2t-waiting">Waiting for others to join. Share the link, or the room name and password.</div>
+      )}
+
+      {controlRequest && (
+        <RemoteControlPrompt
+          name={nameOf(controlRequest)}
+          onAllow={() => void call.allowControl(controlRequest)}
+          onDeny={() => call.denyControl(controlRequest)}
+        />
       )}
 
       <div className="o2t-controls">

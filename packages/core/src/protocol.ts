@@ -40,7 +40,12 @@ export interface PeerState {
   role?: "screen";
   /** For a screen-share participant: the peer id of the person sharing. */
   owner?: string;
+  /** This person is sharing a whole screen and accepts requests to control it. */
+  rc?: boolean;
 }
+
+/** Remote-control handshake between a viewer and the person sharing their screen. */
+export type ControlAction = "request" | "grant" | "deny" | "revoke";
 
 /** Decrypted payloads. `from`/`to` are repeated inside so a captured ciphertext cannot be replayed by another peer. */
 export type Payload =
@@ -48,7 +53,8 @@ export type Payload =
   | { t: "state"; from: string; to?: string; state: PeerState }
   | { t: "sdp"; from: string; to: string; description: { type: "offer" | "answer" | "pranswer" | "rollback"; sdp?: string } }
   | { t: "ice"; from: string; to: string; candidate: IceCandidate | null }
-  | { t: "bye"; from: string; to?: string };
+  | { t: "bye"; from: string; to?: string }
+  | { t: "rc"; from: string; to: string; action: ControlAction };
 
 export interface IceCandidate {
   candidate: string;

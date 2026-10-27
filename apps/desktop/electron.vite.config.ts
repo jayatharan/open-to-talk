@@ -3,7 +3,14 @@ import { defineConfig } from "electron-vite";
 import { resolve } from "node:path";
 
 export default defineConfig({
-  main: {},
+  main: {
+    build: {
+      rollupOptions: {
+        // Native input injection for remote control; loaded from node_modules at runtime.
+        external: [/^@nut-tree-fork\//],
+      },
+    },
+  },
   preload: {},
   renderer: {
     root: resolve(__dirname, "src/renderer"),

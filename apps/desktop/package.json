@@ -33,5 +33,9 @@
     "vite": "^8.3.4"
   },
   "desktopName": "open2talk.desktop",
-  "homepage": "https://open2talk.cosmerg.com"
+  "homepage": "https://open2talk.cosmerg.com",
+  "optionalDependencies": {
+    "@nut-tree-fork/libnut-darwin": "2.7.5",
+    "@nut-tree-fork/libnut-win32": "2.7.5"
+  }
 }

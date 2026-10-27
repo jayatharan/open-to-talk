@@ -5,6 +5,7 @@ import {
   JoinRoomForm,
   ScreenSourcePicker,
   ShareLink,
+  type RemoteControlHost,
   type ScreenSource,
 } from "@open2talk/call-react";
 import { checkHost, extractHost, joinFromLink, normalizeHost, parseRoomLink, roomUrl, type RoomLink, type RoomSecret } from "@open2talk/core";
@@ -21,6 +22,17 @@ type Screen =
   | { name: "call"; slug: string; secret: RoomSecret; displayName: string };
 
 const api = window.open2talk;
+
+/** Lets others in the call control this computer while it shares a whole screen. */
+const remoteControl: RemoteControlHost | undefined = api.remoteControl.supported
+  ? {
+      canControlShare: api.remoteControl.canControlShare,
+      begin: api.remoteControl.begin,
+      input: api.remoteControl.input,
+      end: () => void api.remoteControl.end(),
+      onStop: api.remoteControl.onStop,
+    }
+  : undefined;
 
 export function App() {
   const [host, setHost] = useState("");
@@ -85,6 +97,8 @@ export function App() {
           shareUrl={roomUrl(host, screen.slug, screen.secret.linkKey)}
           onLeave={() => setScreen({ name: "home" })}
           beforeScreenShare={beforeScreenShare}
+          remoteControl={remoteControl}
+          stopControlShortcut={api.remoteControl.stopShortcut}
         />
         {picker && <ScreenSourcePicker {...picker} onPick={(id) => void onPick(id)} />}
       </>
