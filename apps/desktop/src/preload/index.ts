@@ -20,6 +20,8 @@ const api = {
   selectScreenSource: (id: string | null): Promise<void> => ipcRenderer.invoke("screen:select", id),
   consumeDeepLink: (): Promise<string | null> => ipcRenderer.invoke("app:consume-deeplink"),
   openExternal: (url: string): Promise<void> => ipcRenderer.invoke("app:open-external", url),
+  /** Raise the main window (e.g. "Back to call" in the pop-out). */
+  focusMainWindow: (): Promise<void> => ipcRenderer.invoke("app:focus-main"),
   /** Remote control of this computer's shared screen (macOS and Windows). */
   remoteControl: {
     supported: process.platform === "darwin" || process.platform === "win32",

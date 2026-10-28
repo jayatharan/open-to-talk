@@ -85,3 +85,21 @@ export const SwitchCameraIcon = () => (
     <path d="M9 13a3 3 0 0 1 5.2-2M15 13a3 3 0 0 1-5.2 2M14.5 9v2h-2M9.5 17v-2h2" />
   </Icon>
 );
+/** A small window breaking out of a larger one (picture-in-picture). */
+export const PopOutIcon = () => (
+  <Icon>
+    <path d="M21 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h6" />
+    <rect x="13" y="3" width="8" height="6" rx="1" />
+  </Icon>
+);
+export const ReturnIcon = () => (
+  <Icon>
+    <rect x="3" y="4" width="18" height="16" rx="2" />
+    <path d="M14 9l-4 4M10 9v4h4" />
+  </Icon>
+);
+export const CloseIcon = () => (
+  <Icon>
+    <path d="M6 6l12 12M18 6L6 18" />
+  </Icon>
+);
