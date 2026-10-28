@@ -18,10 +18,13 @@ import {
   LinkIcon,
   MicIcon,
   MicOffIcon,
+  PopOutIcon,
   ScreenIcon,
   SwitchCameraIcon,
 } from "./icons";
+import { PopOutTile, PopOutWindow } from "./PopOutWindow";
 import { RemoteControlPrompt } from "./RemoteControlPrompt";
+import { useAttachedStream } from "./useAttachedStream";
 import { useMeshCall, type RemoteControlHost } from "./useMeshCall";
 
 const MAX_WHEEL = 2000;
@@ -166,6 +169,8 @@ function VideoTile({
   kind = "camera",
   onControlInput,
   overlay,
+  onPopOut,
+  poppedOut,
 }: {
   stream: MediaStream | null;
   name: string;
@@ -181,6 +186,10 @@ function VideoTile({
   onControlInput?: (e: ControlInput) => void;
   /** Buttons over the tile; clicks on them don't toggle full screen or reach the remote screen. */
   overlay?: (tile: { large: boolean; toggleFullscreen: () => void }) => ReactNode;
+  /** Shows a button that pops this tile out into a floating window. */
+  onPopOut?: () => void;
+  /** This tile is currently shown in the pop-out. */
+  poppedOut?: boolean;
 }) {
   const ref = useRef<HTMLVideoElement>(null);
   const tileRef = useRef<HTMLDivElement>(null);
@@ -190,41 +199,9 @@ function VideoTile({
   const [expanded, setExpanded] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
 
-  // A camera can be "on" before any frame arrives (or while a peer's track is stalled); show the
-  // avatar until the video element actually has a picture, instead of a black rectangle.
-  const [hasFrames, setHasFrames] = useState(false);
+  const hasFrames = useAttachedStream(ref, stream);
   const controlling = !!onControlInput;
   useControlInput(tileRef, ref, onControlInput);
-
-  useEffect(() => {
-    const el = ref.current;
-    if (!el) return;
-    if (el.srcObject !== stream) el.srcObject = stream;
-    if (stream) el.play().catch(() => undefined);
-    // The stream object can stay the same while its video track is added or replaced later.
-    let track: MediaStreamTrack | undefined;
-    const trackEvents = ["mute", "unmute", "ended"] as const;
-    const update = () => {
-      const next = stream?.getVideoTracks()[0];
-      if (next !== track) {
-        for (const e of trackEvents) track?.removeEventListener(e, update);
-        track = next;
-        for (const e of trackEvents) track?.addEventListener(e, update);
-      }
-      setHasFrames(el.videoWidth > 0 && !!track && !track.muted && track.readyState === "live");
-    };
-    update();
-    const videoEvents = ["loadeddata", "resize", "playing", "emptied"] as const;
-    for (const e of videoEvents) el.addEventListener(e, update);
-    stream?.addEventListener("addtrack", update);
-    stream?.addEventListener("removetrack", update);
-    return () => {
-      for (const e of videoEvents) el.removeEventListener(e, update);
-      for (const e of trackEvents) track?.removeEventListener(e, update);
-      stream?.removeEventListener("addtrack", update);
-      stream?.removeEventListener("removetrack", update);
-    };
-  }, [stream]);
 
   useEffect(() => {
     let wasFullscreen = false;
@@ -297,6 +274,20 @@ function VideoTile({
           {large ? <CollapseIcon /> : <ExpandIcon />}
         </span>
       )}
+      {onPopOut && !controlling && !poppedOut && (
+        <button
+          className="o2t-tile-popout"
+          title="Pop out (picture in picture)"
+          aria-label={`Pop out ${name}`}
+          onClick={(e) => {
+            e.stopPropagation();
+            onPopOut();
+          }}
+          onKeyDown={(e) => e.stopPropagation()}
+        >
+          <PopOutIcon />
+        </button>
+      )}
       {overlay && (
         <div className="o2t-tile-overlay" onClick={(e) => e.stopPropagation()} onKeyDown={(e) => e.stopPropagation()}>
           {overlay({ large, toggleFullscreen })}
@@ -310,6 +301,7 @@ function VideoTile({
         )}
         {name}
         {connecting && <span className="o2t-muted"> · connecting…</span>}
+        {poppedOut && <span className="o2t-muted"> · popped out</span>}
       </div>
     </div>
   );
@@ -328,6 +320,17 @@ export interface CallViewProps {
   remoteControl?: RemoteControlHost;
   /** Label of the host's shortcut that takes control back, e.g. "⌘⇧Esc". */
   stopControlShortcut?: string;
+  /** Lets tiles pop out into a floating window (desktop, which keeps it above other apps). */
+  popOut?: { onBackToCall: () => void };
+}
+
+interface PoppedTile {
+  stream: MediaStream | null;
+  name: string;
+  kind: "camera" | "screen";
+  mirrored?: boolean;
+  showVideo: boolean;
+  micOn?: boolean;
 }
 
 /** Request/stop control of the screen on stage. */
@@ -386,6 +389,7 @@ export function CallView({
   canShareScreen = true,
   remoteControl,
   stopControlShortcut,
+  popOut,
 }: CallViewProps) {
   const call = useMeshCall({ host, secret, displayName, beforeScreenShare, remoteControl });
   // Mobile browsers (e.g. iOS Safari) have no getDisplayMedia.
@@ -420,6 +424,30 @@ export function CallView({
   const stageControl = stagePeer && outgoing?.peer === stagePeer.id ? outgoing.status : null;
   const nameOf = (id: string) => call.peers.find((p) => p.id === id)?.state.name ?? "Someone";
   const controlRequest = call.control.requests[0];
+
+  // One tile at a time can be popped out: "local", "local-screen", "<peer>:camera" or "<peer>:screen".
+  const [popped, setPopped] = useState<string | null>(null);
+  const pip = ((): PoppedTile | null => {
+    if (!popped || !popOut) return null;
+    if (popped === "local") {
+      return { stream: call.localStream, name: `${displayName} (you)`, kind: "camera", mirrored: true, showVideo: call.camOn, micOn: call.micOn };
+    }
+    if (popped === "local-screen") {
+      return call.screenStream ? { stream: call.screenStream, name: "Your screen", kind: "screen", showVideo: true } : null;
+    }
+    const [id, what] = popped.split(":");
+    const p = call.peers.find((peer) => peer.id === id);
+    if (!p) return null;
+    if (what === "screen") return p.screen ? { stream: p.screen, name: `${p.state.name}'s screen`, kind: "screen", showVideo: true } : null;
+    return { stream: p.camera, name: p.state.name, kind: "camera", showVideo: p.state.camOn, micOn: p.state.micOn };
+  })();
+  // The person left or the share stopped: close the pop-out.
+  const pipGone = !!popped && !pip;
+  useEffect(() => {
+    if (pipGone) setPopped(null);
+  }, [pipGone]);
+  const popOutProps = (key: string) =>
+    popOut ? { onPopOut: () => setPopped(key), poppedOut: popped === key && !!pip } : {};
 
   function leave() {
     call.leave();
@@ -461,6 +489,7 @@ export function CallView({
         showVideo={call.camOn}
         micOn={call.micOn}
         speaking={call.localSpeaking}
+        {...popOutProps("local")}
       />
       {call.peers.map((p) => (
         <VideoTile
@@ -471,11 +500,19 @@ export function CallView({
           micOn={p.state.micOn}
           connecting={p.connection !== "connected"}
           speaking={call.isSpeaking(p.id)}
+          {...popOutProps(`${p.id}:camera`)}
         />
       ))}
       {/* Extra remote screen shares (beyond the one on stage) still need to be heard. */}
       {remoteScreens.filter((p) => p !== stagePeer).map((p) => (
-        <VideoTile key={`${p.id}-screen`} stream={p.screen} name={`${p.state.name}'s screen`} showVideo kind="screen" />
+        <VideoTile
+          key={`${p.id}-screen`}
+          stream={p.screen}
+          name={`${p.state.name}'s screen`}
+          showVideo
+          kind="screen"
+          {...popOutProps(`${p.id}:screen`)}
+        />
       ))}
     </>
   );
@@ -515,6 +552,7 @@ export function CallView({
               muted={stage.local}
               showVideo
               kind="screen"
+              {...popOutProps(stage.local ? "local-screen" : `${stagePeer!.id}:screen`)}
               onControlInput={stageControl === "active" ? call.sendControlInput : undefined}
               overlay={
                 stagePeer && (stagePeer.state.rc || stageControl)
@@ -541,6 +579,24 @@ export function CallView({
 
       {call.peers.length === 0 && call.status === "open" && (
         <div className="o2t-waiting">Waiting for others to join. Share the link, or the room name and password.</div>
+      )}
+
+      {pip && popOut && (
+        <PopOutWindow title={pip.name} onClose={() => setPopped(null)}>
+          <PopOutTile
+            {...pip}
+            local={{
+              micOn: call.micOn,
+              camOn: call.camOn,
+              canMic: !!call.localStream?.getAudioTracks().length,
+              canCam: !!call.localStream?.getVideoTracks().length,
+              toggleMic: call.toggleMic,
+              toggleCam: call.toggleCam,
+            }}
+            onBackToCall={popOut.onBackToCall}
+            onClose={() => setPopped(null)}
+          />
+        </PopOutWindow>
       )}
 
       {controlRequest && (

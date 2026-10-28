@@ -1,7 +1,8 @@
-import { app, BrowserWindow, desktopCapturer, ipcMain, session, shell, systemPreferences } from "electron";
+import { app, BrowserWindow, desktopCapturer, ipcMain, session, shell, systemPreferences, type Rectangle } from "electron";
 import { readFileSync, writeFileSync } from "node:fs";
 import { release } from "node:os";
 import { join } from "node:path";
+import { setupFocusMain, setupPopOut } from "./popOut";
 import { noteSharedSource, setupRemoteControl, shutdownRemoteControl } from "./remoteControl";
 
 const PROTOCOL = "open2talk";
@@ -22,6 +23,8 @@ if (process.platform === "darwin" && systemAudioSupported) {
 
 interface Settings {
   host: string;
+  /** Where the picture-in-picture pop-out was last left. */
+  pipBounds?: Rectangle;
 }
 
 const settingsPath = () => join(app.getPath("userData"), "settings.json");
@@ -128,7 +131,7 @@ function setupSession(): void {
 
 ipcMain.handle("settings:get", () => readSettings());
 ipcMain.handle("settings:set", (_e, next: Settings) => {
-  writeSettings({ host: String(next.host ?? "") });
+  writeSettings({ ...readSettings(), host: String(next.host ?? "") });
   return readSettings();
 });
 ipcMain.handle("app:consume-deeplink", () => {
@@ -140,6 +143,7 @@ ipcMain.handle("app:open-external", (_e, url: string) => {
   if (/^https?:\/\//.test(url)) return shell.openExternal(url);
 });
 setupRemoteControl(() => mainWindow);
+setupFocusMain(() => mainWindow);
 
 function createWindow(): void {
   mainWindow = new BrowserWindow({
@@ -170,9 +174,10 @@ function createWindow(): void {
   mainWindow.webContents.on("did-start-navigation", (e) => {
     if (e.isMainFrame && !e.isSameDocument) shutdownRemoteControl();
   });
-  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
-    if (/^https?:\/\//.test(url)) void shell.openExternal(url);
-    return { action: "deny" };
+  // Opens the call-tile pop-out; every other link goes to the browser.
+  setupPopOut(mainWindow, {
+    getBounds: () => readSettings().pipBounds,
+    setBounds: (pipBounds) => writeSettings({ ...readSettings(), pipBounds }),
   });
   mainWindow.webContents.on("will-navigate", (e, url) => {
     if (!url.startsWith("file://") && !url.startsWith(process.env.ELECTRON_RENDERER_URL ?? "\0")) e.preventDefault();

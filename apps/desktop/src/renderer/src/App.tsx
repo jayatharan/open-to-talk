@@ -34,6 +34,9 @@ const remoteControl: RemoteControlHost | undefined = api.remoteControl.supported
     }
   : undefined;
 
+/** Call tiles can pop out into a floating always-on-top window. */
+const popOut = { onBackToCall: () => void api.focusMainWindow() };
+
 export function App() {
   const [host, setHost] = useState("");
   const [screen, setScreen] = useState<Screen>({ name: "loading" });
@@ -99,6 +102,7 @@ export function App() {
           beforeScreenShare={beforeScreenShare}
           remoteControl={remoteControl}
           stopControlShortcut={api.remoteControl.stopShortcut}
+          popOut={popOut}
         />
         {picker && <ScreenSourcePicker {...picker} onPick={(id) => void onPick(id)} />}
       </>

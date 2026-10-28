@@ -1047,6 +1047,164 @@ select {
   gap: 8px;
 }
 
+/* ------------------------------------------------------------------ pop-out (picture in picture) */
+
+.o2t-tile-popout {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  z-index: 2;
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border: 0;
+  border-radius: 10px;
+  background: rgb(2 6 23 / 0.55);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  color: #fff;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity var(--o2t-dur-ui) var(--o2t-ease-out), background var(--o2t-dur-micro) var(--o2t-ease-out);
+}
+
+.o2t-tile-popout svg {
+  width: 16px;
+  height: 16px;
+}
+
+.o2t-tile:hover .o2t-tile-popout,
+.o2t-tile:focus-within .o2t-tile-popout {
+  opacity: 1;
+}
+
+.o2t-tile-popout:hover,
+.o2t-tile-popout:focus-visible {
+  background: rgb(30 41 59 / 0.85);
+}
+
+@media (hover: none) {
+  .o2t-tile-popout {
+    opacity: 1;
+  }
+}
+
+/* The pop-out window itself: one full-bleed tile, draggable anywhere except its buttons. */
+.o2t-pip-body {
+  margin: 0;
+  min-height: 0;
+  height: 100vh;
+  overflow: hidden;
+  background: var(--o2t-bg);
+  -webkit-app-region: drag;
+  user-select: none;
+}
+
+.o2t-pip-root,
+.o2t-pip {
+  position: absolute;
+  inset: 0;
+}
+
+.o2t-pip {
+  overflow: hidden;
+  background:
+    radial-gradient(120% 90% at 50% 0%, rgb(96 165 250 / 0.08), transparent 70%),
+    var(--o2t-surface-solid);
+}
+
+.o2t-pip video {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transition: opacity var(--o2t-dur-enter) var(--o2t-ease-out);
+}
+
+.o2t-pip-screen video {
+  object-fit: contain;
+  background: #000;
+}
+
+.o2t-pip .o2t-avatar {
+  width: 56px;
+  height: 56px;
+  font-size: 1.3rem;
+}
+
+.o2t-pip-label {
+  position: absolute;
+  left: 8px;
+  bottom: 8px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  max-width: calc(100% - 16px);
+  padding: 3px 8px;
+  border-radius: 8px;
+  background: rgb(2 6 23 / 0.6);
+  font-size: 0.72rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.o2t-pip-controls {
+  position: absolute;
+  top: 8px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  gap: 4px;
+  padding: 4px;
+  border-radius: 12px;
+  background: rgb(2 6 23 / 0.65);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  opacity: 0;
+  transition: opacity var(--o2t-dur-ui) var(--o2t-ease-out);
+}
+
+.o2t-pip:hover .o2t-pip-controls,
+.o2t-pip-controls:focus-within {
+  opacity: 1;
+}
+
+.o2t-pip-btn {
+  -webkit-app-region: no-drag;
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--o2t-text);
+  cursor: pointer;
+  transition: background var(--o2t-dur-micro) var(--o2t-ease-out);
+}
+
+.o2t-pip-btn svg {
+  width: 16px;
+  height: 16px;
+}
+
+.o2t-pip-btn:hover:not(:disabled),
+.o2t-pip-btn:focus-visible {
+  background: rgb(148 163 184 / 0.22);
+}
+
+.o2t-pip-btn[data-off="true"] {
+  color: var(--o2t-danger);
+}
+
+.o2t-pip-btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
 /* ------------------------------------------------------------------ reduced motion */
 
 /* Content appears in its final state immediately; only colour/opacity feedback remains. */
